@@ -10,6 +10,7 @@ const navLinks = [
   { name: 'Concert', href: '/category/concerts' },
   { name: 'Theater', href: '/category/theater' },
   { name: 'Cities', href: '/cities' },
+  { name: 'Sell Tickets', href: '/sell' },
 ];
 
 export const Header = () => {
