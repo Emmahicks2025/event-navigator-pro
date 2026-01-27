@@ -144,12 +144,14 @@ export function useAutoGenerateInventory() {
       eventId,
       minTickets = 1,
       maxTickets = 500,
-      priceVariation = 0.2, // 20% variation
+      minPrice = 25,
+      maxPrice = 200,
     }: { 
       eventId: string;
       minTickets?: number;
       maxTickets?: number;
-      priceVariation?: number;
+      minPrice?: number;
+      maxPrice?: number;
     }) => {
       // Get all event sections
       const { data: eventSections, error: sectionsError } = await supabase
@@ -215,9 +217,19 @@ export function useAutoGenerateInventory() {
               ? String(startSeat)
               : `${startSeat}-${startSeat + quantity - 1}`;
           
-          // Price with variation
-          const variation = 1 + (Math.random() * priceVariation * 2 - priceVariation);
-          const price = Math.round(basePrice * variation * 100) / 100;
+          // Random price within the specified range, adjusted by section type
+          const sectionType = section?.name?.toLowerCase() || '';
+          let priceMultiplier = 1;
+          if (sectionType.includes('vip') || sectionType.includes('suite')) {
+            priceMultiplier = 1.5;
+          } else if (sectionType.includes('floor') || sectionType.includes('pit')) {
+            priceMultiplier = 1.3;
+          } else if (sectionType.includes('upper') || sectionType.includes('300')) {
+            priceMultiplier = 0.7;
+          }
+          
+          const baseRandom = minPrice + Math.random() * (maxPrice - minPrice);
+          const price = Math.round(baseRandom * priceMultiplier * 100) / 100;
           
           inventoryItems.push({
             event_section_id: eventSection.id,
