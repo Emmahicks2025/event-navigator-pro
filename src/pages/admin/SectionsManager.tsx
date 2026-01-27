@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { ArrowLeft, Plus, Edit, Trash2, MousePointer, ZoomIn, ZoomOut, RotateCcw, Check, X } from 'lucide-react';
+import { ArrowLeft, Plus, Edit, Trash2, MousePointer, ZoomIn, ZoomOut, RotateCcw, Check, X, Sparkles, Loader2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -76,6 +76,7 @@ const SectionsManager = () => {
   const [hoveredElementId, setHoveredElementId] = useState<string | null>(null);
   const [mapMode, setMapMode] = useState<'view' | 'assign'>('assign');
   const [zoom, setZoom] = useState(1);
+  const [autoDetecting, setAutoDetecting] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -332,6 +333,65 @@ const SectionsManager = () => {
     }
   };
 
+  const handleAutoDetect = async () => {
+    if (!venue?.svg_map) {
+      toast.error('No SVG map found for this venue');
+      return;
+    }
+
+    setAutoDetecting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('parse-svg-sections', {
+        body: { svgContent: venue.svg_map },
+      });
+
+      if (error) throw error;
+
+      const parsedSections = data?.sections || [];
+      
+      if (parsedSections.length === 0) {
+        toast.info('No sections detected in the SVG');
+        return;
+      }
+
+      // Filter out sections that already exist
+      const existingSvgPaths = new Set(sections.map(s => s.svg_path));
+      const newSections = parsedSections.filter((s: any) => !existingSvgPaths.has(s.svg_path));
+
+      if (newSections.length === 0) {
+        toast.info('All detected sections are already assigned');
+        return;
+      }
+
+      // Insert new sections
+      const sectionsToInsert = newSections.map((s: any) => ({
+        venue_id: venueId,
+        name: s.name,
+        section_type: s.section_type || 'standard',
+        capacity: s.capacity || 100,
+        row_count: s.row_count || 10,
+        seats_per_row: s.seats_per_row || 10,
+        is_general_admission: s.is_general_admission || false,
+        svg_path: s.svg_path,
+        sort_order: s.sort_order || 0,
+      }));
+
+      const { error: insertError } = await supabase
+        .from('sections')
+        .insert(sectionsToInsert);
+
+      if (insertError) throw insertError;
+
+      toast.success(`Created ${newSections.length} sections from SVG`);
+      fetchVenueAndSections();
+    } catch (err: any) {
+      console.error('Auto-detect error:', err);
+      toast.error(err.message || 'Failed to auto-detect sections');
+    } finally {
+      setAutoDetecting(false);
+    }
+  };
+
   const getHoveredSection = () => {
     if (!hoveredElementId) return null;
     return sections.find(s => s.svg_path === hoveredElementId);
@@ -355,10 +415,24 @@ const SectionsManager = () => {
           <h2 className="text-2xl font-bold text-foreground">Visual Section Mapper</h2>
           <p className="text-muted-foreground">{venue?.name} — Click on map sections to assign them</p>
         </div>
-        <Button variant="outline" onClick={openCreateDialog}>
-          <Plus size={18} className="mr-2" />
-          Manual Add
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="default" 
+            onClick={handleAutoDetect} 
+            disabled={autoDetecting || !venue?.svg_map}
+          >
+            {autoDetecting ? (
+              <Loader2 size={18} className="mr-2 animate-spin" />
+            ) : (
+              <Sparkles size={18} className="mr-2" />
+            )}
+            {autoDetecting ? 'Detecting...' : 'Auto-detect Sections'}
+          </Button>
+          <Button variant="outline" onClick={openCreateDialog}>
+            <Plus size={18} className="mr-2" />
+            Manual Add
+          </Button>
+        </div>
       </div>
 
       {/* Instructions */}
