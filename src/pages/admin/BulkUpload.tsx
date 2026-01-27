@@ -68,6 +68,10 @@ const BulkUpload = () => {
   const [svgResults, setSvgResults] = useState<SvgUploadResult[]>([]);
   const [svgProgress, setSvgProgress] = useState(0);
   const [createNewVenues, setCreateNewVenues] = useState(false);
+  
+  // Quick Seed State
+  const [seeding, setSeeding] = useState(false);
+  const [seedResults, setSeedResults] = useState<{ venues: { created: number; existing: number }; performers: { created: number; existing: number }; events: { created: number; existing: number } } | null>(null);
 
   // Handle Excel file selection
   const handleExcelSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -479,6 +483,29 @@ const BulkUpload = () => {
     toast.success('Template downloaded');
   };
 
+  // Quick Seed from spreadsheet data
+  const quickSeedData = async () => {
+    setSeeding(true);
+    setSeedResults(null);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('seed-events-data');
+      
+      if (error) throw error;
+      
+      if (data?.results) {
+        setSeedResults(data.results);
+        const total = data.results.venues.created + data.results.performers.created + data.results.events.created;
+        toast.success(`Seeded ${total} new records (${data.results.venues.created} venues, ${data.results.performers.created} performers, ${data.results.events.created} events)`);
+      }
+    } catch (err: any) {
+      console.error('Error seeding data:', err);
+      toast.error(err.message || 'Failed to seed data');
+    } finally {
+      setSeeding(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -487,6 +514,56 @@ const BulkUpload = () => {
           Upload events from Excel or venue maps from SVG files
         </p>
       </div>
+
+      {/* Quick Seed Card */}
+      <Card className="border-primary/50 bg-primary/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles size={20} className="text-primary" />
+            Quick Seed: Featured Events
+          </CardTitle>
+          <CardDescription>
+            Instantly populate your database with 25+ featured events, venues, and performers with local images.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Button 
+            onClick={quickSeedData} 
+            disabled={seeding}
+            className="w-full"
+            size="lg"
+          >
+            {seeding ? (
+              <>
+                <Loader2 className="animate-spin mr-2" size={18} />
+                Seeding Database...
+              </>
+            ) : (
+              <>
+                <Sparkles size={18} className="mr-2" />
+                Seed Featured Events & Performers
+              </>
+            )}
+          </Button>
+          
+          {seedResults && (
+            <div className="grid grid-cols-3 gap-4 p-4 bg-background rounded-lg">
+              <div className="text-center">
+                <p className="text-2xl font-bold text-primary">{seedResults.venues.created}</p>
+                <p className="text-sm text-muted-foreground">Venues Created</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-primary">{seedResults.performers.created}</p>
+                <p className="text-sm text-muted-foreground">Performers Created</p>
+              </div>
+              <div className="text-center">
+                <p className="text-2xl font-bold text-primary">{seedResults.events.created}</p>
+                <p className="text-sm text-muted-foreground">Events Created</p>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="events" className="space-y-6">
         <TabsList className="grid w-full max-w-md grid-cols-2">
