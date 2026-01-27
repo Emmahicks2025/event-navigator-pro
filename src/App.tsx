@@ -19,6 +19,19 @@ import Cities from "./pages/Cities";
 import SellTickets from "./pages/SellTickets";
 import NotFound from "./pages/NotFound";
 
+// Static Pages
+import About from "./pages/About";
+import Careers from "./pages/Careers";
+import Press from "./pages/Press";
+import Blog from "./pages/Blog";
+import Help from "./pages/Help";
+import Contact from "./pages/Contact";
+import FAQs from "./pages/FAQs";
+import Terms from "./pages/Terms";
+import Privacy from "./pages/Privacy";
+import Cookies from "./pages/Cookies";
+import Accessibility from "./pages/Accessibility";
+
 // Admin
 import AdminLayout from "./components/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/Dashboard";
@@ -136,6 +149,20 @@ const App = () => (
                   <Footer />
                 </div>
               } />
+              
+              {/* Static Pages */}
+              <Route path="/about" element={<About />} />
+              <Route path="/careers" element={<Careers />} />
+              <Route path="/press" element={<Press />} />
+              <Route path="/blog" element={<Blog />} />
+              <Route path="/help" element={<Help />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/faqs" element={<FAQs />} />
+              <Route path="/terms" element={<Terms />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/cookies" element={<Cookies />} />
+              <Route path="/accessibility" element={<Accessibility />} />
+              
               <Route path="*" element={
                 <div className="min-h-screen flex flex-col bg-background">
                   <Header />
