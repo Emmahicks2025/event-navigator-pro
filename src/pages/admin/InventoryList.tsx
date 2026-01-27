@@ -66,18 +66,56 @@ const InventoryList = () => {
   const autoGenerateSections = useAutoGenerateEventSections();
   const autoGenerateInventory = useAutoGenerateInventory();
 
-  // Fetch events for filter with venue info
+  // Fetch events with venue info for the dropdown
   const { data: events = [] } = useQuery({
-    queryKey: ['events-for-filter-with-venue'],
+    queryKey: ['events-for-inventory-with-venue'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('events')
-        .select('id, title, venue_id, event_date')
+        .select(`
+          id, title, venue_id, event_date,
+          venue:venues(id, name, city, state)
+        `)
         .eq('is_active', true)
-        .order('title');
+        .order('event_date', { ascending: true });
       if (error) throw error;
       return data;
     },
+  });
+
+  // Fetch sections count for selected event's venue
+  const selectedEvent = events.find((e: any) => e.id === autoGenConfig.eventId);
+  const { data: venueSections = [] } = useQuery({
+    queryKey: ['venue-sections-count', selectedEvent?.venue_id],
+    queryFn: async () => {
+      if (!selectedEvent?.venue_id) return [];
+      const { data, error } = await supabase
+        .from('sections')
+        .select('id, name, section_type, capacity')
+        .eq('venue_id', selectedEvent.venue_id)
+        .order('sort_order');
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!selectedEvent?.venue_id,
+  });
+
+  // Check existing inventory for selected event
+  const { data: existingInventory = [] } = useQuery({
+    queryKey: ['existing-inventory-check', autoGenConfig.eventId],
+    queryFn: async () => {
+      if (!autoGenConfig.eventId) return [];
+      const { data, error } = await supabase
+        .from('ticket_inventory')
+        .select(`
+          id,
+          event_section:event_sections!inner(event_id)
+        `)
+        .eq('event_section.event_id', autoGenConfig.eventId);
+      if (error) throw error;
+      return data || [];
+    },
+    enabled: !!autoGenConfig.eventId,
   });
 
   const filteredInventory = inventory.filter((item: any) => {
@@ -349,15 +387,16 @@ const InventoryList = () => {
 
       {/* Auto-Generate Dialog */}
       <Dialog open={showAutoGenerate} onOpenChange={setShowAutoGenerate}>
-        <DialogContent className="sm:max-w-[425px]">
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Auto-Generate Inventory</DialogTitle>
             <DialogDescription>
-              Automatically create event sections and distribute tickets randomly across all sections.
+              Select an event and we'll automatically create tickets for all venue sections.
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
+            {/* Event Selection */}
             <div>
               <Label>Event *</Label>
               <Select
@@ -370,70 +409,139 @@ const InventoryList = () => {
                 <SelectContent>
                   {events.map((event: any) => (
                     <SelectItem key={event.id} value={event.id}>
-                      {event.title} ({new Date(event.event_date).toLocaleDateString()})
+                      <div className="flex flex-col items-start">
+                        <span>{event.title}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(event.event_date).toLocaleDateString()} • {event.venue?.name || 'No venue'}
+                        </span>
+                      </div>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="minTickets">Min Tickets</Label>
-                <Input
-                  id="minTickets"
-                  type="number"
-                  min="1"
-                  value={autoGenConfig.minTickets}
-                  onChange={(e) => setAutoGenConfig(prev => ({ ...prev, minTickets: Number(e.target.value) || 1 }))}
-                />
+            {/* Event Info Summary */}
+            {selectedEvent && (
+              <div className="bg-muted/50 rounded-lg p-3 space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Venue</span>
+                  <span className="font-medium">
+                    {selectedEvent.venue?.name || 'No venue assigned'}
+                    {selectedEvent.venue?.city && `, ${selectedEvent.venue.city}`}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Sections</span>
+                  <span className="font-medium">
+                    {venueSections.length > 0 
+                      ? `${venueSections.length} sections available`
+                      : <span className="text-destructive">No sections defined</span>
+                    }
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Total Capacity</span>
+                  <span className="font-medium">
+                    {venueSections.reduce((sum, s: any) => sum + (s.capacity || 0), 0).toLocaleString()} seats
+                  </span>
+                </div>
+                {existingInventory.length > 0 && (
+                  <div className="flex items-center justify-between text-sm pt-2 border-t border-border">
+                    <span className="text-warning">Existing Tickets</span>
+                    <Badge variant="outline" className="text-warning border-warning">
+                      {existingInventory.length} listings
+                    </Badge>
+                  </div>
+                )}
               </div>
-              <div>
-                <Label htmlFor="maxTickets">Max Tickets</Label>
-                <Input
-                  id="maxTickets"
-                  type="number"
-                  min="1"
-                  value={autoGenConfig.maxTickets}
-                  onChange={(e) => setAutoGenConfig(prev => ({ ...prev, maxTickets: Number(e.target.value) || 500 }))}
-                />
+            )}
+
+            {/* No venue warning */}
+            {selectedEvent && !selectedEvent.venue_id && (
+              <div className="bg-destructive/10 text-destructive rounded-lg p-3 text-sm">
+                This event has no venue assigned. Please edit the event first.
+              </div>
+            )}
+
+            {/* No sections warning */}
+            {selectedEvent?.venue_id && venueSections.length === 0 && (
+              <div className="bg-warning/10 text-warning rounded-lg p-3 text-sm">
+                The venue has no sections defined. Please add sections to the venue first.
+              </div>
+            )}
+
+            {/* Ticket Range */}
+            <div>
+              <Label className="text-sm font-medium">Ticket Quantity Range</Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Random count distributed across all sections
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="minTickets" className="text-xs">Min</Label>
+                  <Input
+                    id="minTickets"
+                    type="number"
+                    min="1"
+                    value={autoGenConfig.minTickets}
+                    onChange={(e) => setAutoGenConfig(prev => ({ ...prev, minTickets: Number(e.target.value) || 1 }))}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="maxTickets" className="text-xs">Max</Label>
+                  <Input
+                    id="maxTickets"
+                    type="number"
+                    min="1"
+                    value={autoGenConfig.maxTickets}
+                    onChange={(e) => setAutoGenConfig(prev => ({ ...prev, maxTickets: Number(e.target.value) || 500 }))}
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="minPrice">Min Price ($)</Label>
-                <Input
-                  id="minPrice"
-                  type="number"
-                  min="1"
-                  step="0.01"
-                  value={autoGenConfig.minPrice}
-                  onChange={(e) => setAutoGenConfig(prev => ({ ...prev, minPrice: Number(e.target.value) || 25 }))}
-                />
-              </div>
-              <div>
-                <Label htmlFor="maxPrice">Max Price ($)</Label>
-                <Input
-                  id="maxPrice"
-                  type="number"
-                  min="1"
-                  step="0.01"
-                  value={autoGenConfig.maxPrice}
-                  onChange={(e) => setAutoGenConfig(prev => ({ ...prev, maxPrice: Number(e.target.value) || 200 }))}
-                />
+            {/* Price Range */}
+            <div>
+              <Label className="text-sm font-medium">Price Range ($)</Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Adjusted by section type: VIP +50%, Floor +30%, Upper −30%
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="minPrice" className="text-xs">Min</Label>
+                  <Input
+                    id="minPrice"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={autoGenConfig.minPrice}
+                    onChange={(e) => setAutoGenConfig(prev => ({ ...prev, minPrice: Number(e.target.value) || 25 }))}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="maxPrice" className="text-xs">Max</Label>
+                  <Input
+                    id="maxPrice"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={autoGenConfig.maxPrice}
+                    onChange={(e) => setAutoGenConfig(prev => ({ ...prev, maxPrice: Number(e.target.value) || 200 }))}
+                  />
+                </div>
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              Prices adjusted by section type (VIP +50%, Floor +30%, Upper -30%)
-            </p>
           </div>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAutoGenerate(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAutoGenerate} disabled={isGenerating || !autoGenConfig.eventId}>
+            <Button 
+              onClick={handleAutoGenerate} 
+              disabled={isGenerating || !autoGenConfig.eventId || !selectedEvent?.venue_id || venueSections.length === 0}
+            >
               {isGenerating ? (
                 <>
                   <Loader2 size={16} className="animate-spin mr-2" />
@@ -442,7 +550,7 @@ const InventoryList = () => {
               ) : (
                 <>
                   <Wand2 size={16} className="mr-2" />
-                  Generate
+                  Generate for {venueSections.length} Sections
                 </>
               )}
             </Button>
