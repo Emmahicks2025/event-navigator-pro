@@ -7,7 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { toast } from 'sonner';
-import { ArrowLeft, Loader2, Save, Upload } from 'lucide-react';
+import { ArrowLeft, Loader2, Save } from 'lucide-react';
+import SectionsManager from './SectionsManager';
 
 const VenueForm = () => {
   const { id } = useParams();
@@ -299,6 +300,11 @@ const VenueForm = () => {
             </CardContent>
           </Card>
         </div>
+
+        {/* Sections Manager - only show when editing and SVG exists */}
+        {isEditing && id && formData.svg_map && (
+          <SectionsManager venueId={id} svgContent={formData.svg_map} embedded={true} />
+        )}
 
         {/* Submit */}
         <div className="flex items-center gap-4">

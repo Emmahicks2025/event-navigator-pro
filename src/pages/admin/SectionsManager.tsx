@@ -61,8 +61,15 @@ const SectionTypes = [
   { value: 'standard', label: 'Standard' },
 ];
 
-const SectionsManager = () => {
-  const { venueId } = useParams();
+interface SectionsManagerProps {
+  venueId?: string;
+  svgContent?: string;
+  embedded?: boolean;
+}
+
+const SectionsManager = ({ venueId: propVenueId, svgContent, embedded = false }: SectionsManagerProps = {}) => {
+  const { venueId: paramVenueId } = useParams();
+  const venueId = propVenueId || paramVenueId;
   const navigate = useNavigate();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   
@@ -97,11 +104,33 @@ const SectionsManager = () => {
     }
   });
 
+  // If embedded and svgContent provided, use that instead of fetching
   useEffect(() => {
-    if (venueId) {
+    if (svgContent && venueId) {
+      setVenue({ id: venueId, name: '', svg_map: svgContent, map_viewbox: null });
+      fetchSections();
+    } else if (venueId) {
       fetchVenueAndSections();
     }
-  }, [venueId]);
+  }, [venueId, svgContent]);
+
+  const fetchSections = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('sections')
+        .select('*')
+        .eq('venue_id', venueId)
+        .order('sort_order');
+      
+      if (error) throw error;
+      setSections(data || []);
+    } catch (err) {
+      console.error('Error fetching sections:', err);
+      toast.error('Failed to load sections');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Setup SVG interactivity after venue loads
   useEffect(() => {
@@ -484,7 +513,7 @@ const SectionsManager = () => {
       if (insertError) throw insertError;
 
       toast.success(`Created ${newSections.length} sections from SVG`);
-      fetchVenueAndSections();
+      fetchSections();
     } catch (err: any) {
       console.error('Auto-detect error:', err);
       toast.error(err.message || 'Failed to auto-detect sections');
@@ -508,33 +537,67 @@ const SectionsManager = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/admin/venues')}>
-          <ArrowLeft size={20} />
-        </Button>
-        <div className="flex-1">
-          <h2 className="text-2xl font-bold text-foreground">Visual Section Mapper</h2>
-          <p className="text-muted-foreground">{venue?.name} — Click on map sections to assign them</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button 
-            variant="default" 
-            onClick={handleAutoDetect} 
-            disabled={autoDetecting || !venue?.svg_map}
-          >
-            {autoDetecting ? (
-              <Loader2 size={18} className="mr-2 animate-spin" />
-            ) : (
-              <Sparkles size={18} className="mr-2" />
-            )}
-            {autoDetecting ? 'Detecting...' : 'Auto-detect Sections'}
+      {!embedded && (
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/admin/venues')}>
+            <ArrowLeft size={20} />
           </Button>
-          <Button variant="outline" onClick={openCreateDialog}>
-            <Plus size={18} className="mr-2" />
-            Manual Add
-          </Button>
+          <div className="flex-1">
+            <h2 className="text-2xl font-bold text-foreground">Visual Section Mapper</h2>
+            <p className="text-muted-foreground">{venue?.name} — Click on map sections to assign them</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button 
+              variant="default" 
+              onClick={handleAutoDetect} 
+              disabled={autoDetecting || !venue?.svg_map}
+            >
+              {autoDetecting ? (
+                <Loader2 size={18} className="mr-2 animate-spin" />
+              ) : (
+                <Sparkles size={18} className="mr-2" />
+              )}
+              {autoDetecting ? 'Detecting...' : 'Auto-detect Sections'}
+            </Button>
+            <Button variant="outline" onClick={openCreateDialog}>
+              <Plus size={18} className="mr-2" />
+              Manual Add
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
+
+      {embedded && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Section Manager</CardTitle>
+                <CardDescription>Manage venue sections and link them to the SVG map</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="default" 
+                  size="sm"
+                  onClick={handleAutoDetect} 
+                  disabled={autoDetecting || !venue?.svg_map}
+                >
+                  {autoDetecting ? (
+                    <Loader2 size={16} className="mr-2 animate-spin" />
+                  ) : (
+                    <Sparkles size={16} className="mr-2" />
+                  )}
+                  {autoDetecting ? 'Detecting...' : 'Auto-detect'}
+                </Button>
+                <Button variant="outline" size="sm" onClick={openCreateDialog}>
+                  <Plus size={16} className="mr-2" />
+                  Add Section
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+        </Card>
+      )}
 
       {/* Instructions */}
       <Card className="bg-primary/5 border-primary/20">
