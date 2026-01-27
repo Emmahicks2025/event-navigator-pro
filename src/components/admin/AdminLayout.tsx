@@ -14,7 +14,8 @@ import {
   Star,
   BarChart3,
   Package,
-  HandCoins
+  HandCoins,
+  Upload
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -28,6 +29,7 @@ const navItems = [
   { path: '/admin/performers', label: 'Performers', icon: Users },
   { path: '/admin/categories', label: 'Categories', icon: BarChart3 },
   { path: '/admin/inventory', label: 'Inventory', icon: Package },
+  { path: '/admin/bulk-upload', label: 'Bulk Upload', icon: Upload },
   { path: '/admin/orders', label: 'Orders', icon: Ticket },
   { path: '/admin/sell-requests', label: 'Sell Requests', icon: HandCoins },
   { path: '/admin/featured', label: 'Featured', icon: Star },
