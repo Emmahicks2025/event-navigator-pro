@@ -13,7 +13,8 @@ import {
   X,
   Star,
   BarChart3,
-  Package
+  Package,
+  HandCoins
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -28,6 +29,7 @@ const navItems = [
   { path: '/admin/categories', label: 'Categories', icon: BarChart3 },
   { path: '/admin/inventory', label: 'Inventory', icon: Package },
   { path: '/admin/orders', label: 'Orders', icon: Ticket },
+  { path: '/admin/sell-requests', label: 'Sell Requests', icon: HandCoins },
   { path: '/admin/featured', label: 'Featured', icon: Star },
 ];
 
