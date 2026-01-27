@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Search, User, ShoppingCart, Menu, X } from 'lucide-react';
+import { Search, User, ShoppingCart, Menu, X, LogIn, LogOut, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useCart } from '@/context/CartContext';
+import { useAuth } from '@/hooks/useAuth';
 
 const navLinks = [
   { name: 'Sports', href: '/category/sports' },
@@ -15,6 +16,7 @@ export const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const location = useLocation();
   const { cartItems } = useCart();
+  const { user, isAdmin, signOut, loading } = useAuth();
 
   const totalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -66,9 +68,38 @@ export const Header = () => {
               )}
             </Link>
 
-            <Link to="/account" className="p-2 text-muted-foreground hover:text-foreground transition-colors">
-              <User size={20} />
-            </Link>
+            {!loading && (
+              <>
+                {user ? (
+                  <div className="flex items-center gap-2">
+                    {isAdmin && (
+                      <Link 
+                        to="/admin" 
+                        className="p-2 text-primary hover:text-primary/80 transition-colors"
+                        title="Admin Dashboard"
+                      >
+                        <Shield size={20} />
+                      </Link>
+                    )}
+                    <Link to="/account" className="p-2 text-muted-foreground hover:text-foreground transition-colors">
+                      <User size={20} />
+                    </Link>
+                    <button
+                      onClick={() => signOut()}
+                      className="p-2 text-muted-foreground hover:text-foreground transition-colors"
+                      title="Sign Out"
+                    >
+                      <LogOut size={20} />
+                    </button>
+                  </div>
+                ) : (
+                  <Link to="/auth" className="flex items-center gap-1 text-primary hover:text-primary/80 transition-colors">
+                    <LogIn size={20} />
+                    <span className="hidden md:inline text-sm font-medium">Sign In</span>
+                  </Link>
+                )}
+              </>
+            )}
 
             {/* Mobile menu button */}
             <button
