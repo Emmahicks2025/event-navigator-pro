@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Edit, Trash2, DollarSign, Package, Wand2, Loader2 } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, DollarSign, Package, Wand2, Loader2, AlertTriangle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -41,8 +41,8 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { useInventory, useDeleteInventory } from '@/hooks/useInventory';
-import { useAutoGenerateEventSections, useAutoGenerateInventory } from '@/hooks/useEventSections';
-import { useQuery } from '@tanstack/react-query';
+import { useAutoGenerateEventSections, useAutoGenerateInventory, useClearEventInventory } from '@/hooks/useEventSections';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
 const InventoryList = () => {
@@ -51,6 +51,7 @@ const InventoryList = () => {
   const [eventFilter, setEventFilter] = useState<string>('all');
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showAutoGenerate, setShowAutoGenerate] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [autoGenConfig, setAutoGenConfig] = useState({
     eventId: '',
     minTickets: 1,
@@ -59,12 +60,14 @@ const InventoryList = () => {
     maxPrice: 200,
   });
 
+  const queryClient = useQueryClient();
   const { data: inventory = [], isLoading } = useInventory({
     status: statusFilter !== 'all' ? statusFilter : undefined,
   });
   const deleteInventory = useDeleteInventory();
   const autoGenerateSections = useAutoGenerateEventSections();
   const autoGenerateInventory = useAutoGenerateInventory();
+  const clearEventInventory = useClearEventInventory();
 
   // Fetch events with venue info for the dropdown
   const { data: events = [] } = useQuery({
@@ -185,6 +188,18 @@ const InventoryList = () => {
     }
   };
 
+  const handleClearInventory = async () => {
+    if (!autoGenConfig.eventId) return;
+    try {
+      await clearEventInventory.mutateAsync(autoGenConfig.eventId);
+      queryClient.invalidateQueries({ queryKey: ['existing-inventory-check', autoGenConfig.eventId] });
+      toast.success('All inventory cleared for this event');
+      setShowClearConfirm(false);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to clear inventory');
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'available':
@@ -199,6 +214,7 @@ const InventoryList = () => {
   };
 
   const isGenerating = autoGenerateSections.isPending || autoGenerateInventory.isPending;
+  const isClearing = clearEventInventory.isPending;
 
   return (
     <div className="space-y-6">
@@ -448,10 +464,25 @@ const InventoryList = () => {
                 </div>
                 {existingInventory.length > 0 && (
                   <div className="flex items-center justify-between text-sm pt-2 border-t border-border">
-                    <span className="text-warning">Existing Tickets</span>
-                    <Badge variant="outline" className="text-warning border-warning">
-                      {existingInventory.length} listings
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle size={14} className="text-warning" />
+                      <span className="text-warning">Existing Tickets</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" className="text-warning border-warning">
+                        {existingInventory.length} listings
+                      </Badge>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => setShowClearConfirm(true)}
+                        disabled={isClearing}
+                      >
+                        {isClearing ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                        <span className="ml-1 text-xs">Clear All</span>
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -557,6 +588,36 @@ const InventoryList = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Clear Inventory Confirmation */}
+      <AlertDialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear All Inventory?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete all {existingInventory.length} ticket listings for this event. 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isClearing}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleClearInventory} 
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={isClearing}
+            >
+              {isClearing ? (
+                <>
+                  <Loader2 size={14} className="animate-spin mr-2" />
+                  Clearing...
+                </>
+              ) : (
+                'Clear All Tickets'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

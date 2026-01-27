@@ -303,3 +303,38 @@ export function useDeleteEventSections() {
     },
   });
 }
+
+// Clear all inventory for a specific event
+export function useClearEventInventory() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async (eventId: string) => {
+      // First get all event_section IDs for this event
+      const { data: eventSections, error: sectionsError } = await supabase
+        .from('event_sections')
+        .select('id')
+        .eq('event_id', eventId);
+      
+      if (sectionsError) throw sectionsError;
+      if (!eventSections || eventSections.length === 0) {
+        return { deleted: 0 };
+      }
+      
+      const sectionIds = eventSections.map(es => es.id);
+      
+      // Delete all inventory for these sections
+      const { error, count } = await supabase
+        .from('ticket_inventory')
+        .delete()
+        .in('event_section_id', sectionIds);
+      
+      if (error) throw error;
+      return { deleted: count || 0 };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['inventory'] });
+      queryClient.invalidateQueries({ queryKey: ['existing-inventory-check'] });
+    },
+  });
+}
