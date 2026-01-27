@@ -74,10 +74,11 @@ const EventDetail = () => {
   const enrichedEventSections = useMemo(() => {
     return eventSections.map((es: any) => {
       const inventoryData = sectionInventoryMap.get(es.section_id);
+      const hasInventory = inventoryData && inventoryData.minPrice !== Infinity;
       return {
         ...es,
         available_count: inventoryData?.count || 0,
-        price: inventoryData?.minPrice !== Infinity ? inventoryData.minPrice : es.price,
+        price: hasInventory ? inventoryData.minPrice : es.price,
       };
     });
   }, [eventSections, sectionInventoryMap]);
