@@ -4,6 +4,7 @@ import { Search, User, ShoppingCart, Menu, X, LogIn, LogOut, Shield } from 'luci
 import { Button } from '@/components/ui/button';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/hooks/useAuth';
+import { SearchAutocomplete } from './SearchAutocomplete';
 
 const navLinks = [
   { name: 'Sports', href: '/category/sports' },
@@ -50,9 +51,14 @@ export const Header = () => {
             ))}
           </nav>
 
+          {/* Search Bar */}
+          <div className="hidden md:block flex-1 max-w-md mx-8">
+            <SearchAutocomplete />
+          </div>
+
           {/* Right side actions */}
           <div className="flex items-center gap-4">
-            <Link to="/search" className="p-2 text-muted-foreground hover:text-foreground transition-colors">
+            <Link to="/search" className="md:hidden p-2 text-muted-foreground hover:text-foreground transition-colors">
               <Search size={20} />
             </Link>
             
