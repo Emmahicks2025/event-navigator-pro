@@ -1,11 +1,17 @@
 import { Hero } from '@/components/Hero';
 import { EventsCarousel } from '@/components/EventsCarousel';
 import { PerformersSection } from '@/components/PerformersSection';
-import { featuredEvents, allEvents, categories } from '@/data/mockData';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Shield, Clock, CreditCard } from 'lucide-react';
+import { useFeaturedEvents, useEvents } from '@/hooks/useEvents';
+import { useCategories } from '@/hooks/useCategories';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const Index = () => {
+  const { data: featuredEvents = [], isLoading: loadingFeatured } = useFeaturedEvents();
+  const { data: allEvents = [], isLoading: loadingEvents } = useEvents();
+  const { data: categories = [], isLoading: loadingCategories } = useCategories();
+
   const concertEvents = allEvents.filter((e) => e.category === 'concerts');
   const sportsEvents = allEvents.filter((e) => e.category === 'sports');
 
@@ -14,34 +20,55 @@ const Index = () => {
       <Hero />
       
       {/* Featured Events */}
-      <EventsCarousel
-        events={featuredEvents}
-        title="Top Events"
-        subtitle="The hottest tickets in your area"
-      />
+      {loadingFeatured ? (
+        <section className="py-12">
+          <div className="container mx-auto px-4">
+            <Skeleton className="h-8 w-48 mb-6" />
+            <div className="flex gap-6 overflow-hidden">
+              {[...Array(4)].map((_, i) => (
+                <Skeleton key={i} className="w-80 h-64 flex-shrink-0 rounded-lg" />
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : featuredEvents.length > 0 ? (
+        <EventsCarousel
+          events={featuredEvents}
+          title="Top Events"
+          subtitle="The hottest tickets in your area"
+        />
+      ) : null}
 
       {/* Category Browse */}
       <section className="py-12 bg-card/30">
         <div className="container mx-auto px-4">
           <h2 className="text-2xl font-bold text-foreground mb-8">Browse by Category</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {categories.map((category) => (
-              <Link
-                key={category.id}
-                to={`/category/${category.id}`}
-                className="group p-6 bg-card rounded-xl border border-border hover:border-primary/50 transition-all duration-300 hover-lift"
-              >
-                <div className="text-4xl mb-3">{category.icon}</div>
-                <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
-                  {category.name}
-                </h3>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {category.count.toLocaleString()} events
-                </p>
-                <ArrowRight className="mt-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-2 transition-all" size={20} />
-              </Link>
-            ))}
-          </div>
+          {loadingCategories ? (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {[...Array(4)].map((_, i) => (
+                <Skeleton key={i} className="h-32 rounded-xl" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {categories.map((category) => (
+                <Link
+                  key={category.id}
+                  to={`/category/${category.id}`}
+                  className="group p-6 bg-card rounded-xl border border-border hover:border-primary/50 transition-all duration-300 hover-lift"
+                >
+                  <div className="text-4xl mb-3">{category.icon}</div>
+                  <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                    {category.name}
+                  </h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {category.count.toLocaleString()} events
+                  </p>
+                  <ArrowRight className="mt-4 text-muted-foreground group-hover:text-primary group-hover:translate-x-2 transition-all" size={20} />
+                </Link>
+              ))}
+            </div>
+          )}
         </div>
       </section>
 
@@ -49,18 +76,33 @@ const Index = () => {
       <PerformersSection />
 
       {/* Concert Events */}
-      <EventsCarousel
-        events={concertEvents}
-        title="Upcoming Concerts"
-        subtitle="Don't miss your favorite artists live"
-      />
+      {loadingEvents ? (
+        <section className="py-12">
+          <div className="container mx-auto px-4">
+            <Skeleton className="h-8 w-48 mb-6" />
+            <div className="flex gap-6 overflow-hidden">
+              {[...Array(4)].map((_, i) => (
+                <Skeleton key={i} className="w-80 h-64 flex-shrink-0 rounded-lg" />
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : concertEvents.length > 0 ? (
+        <EventsCarousel
+          events={concertEvents}
+          title="Upcoming Concerts"
+          subtitle="Don't miss your favorite artists live"
+        />
+      ) : null}
 
       {/* Sports Events */}
-      <EventsCarousel
-        events={sportsEvents}
-        title="Sports Events"
-        subtitle="Experience the thrill of live sports"
-      />
+      {!loadingEvents && sportsEvents.length > 0 && (
+        <EventsCarousel
+          events={sportsEvents}
+          title="Sports Events"
+          subtitle="Experience the thrill of live sports"
+        />
+      )}
 
       {/* Trust Badges */}
       <section className="py-16 bg-card/50 border-y border-border">

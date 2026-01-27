@@ -27,6 +27,11 @@ import VenueForm from "./pages/admin/VenueForm";
 import SectionsManager from "./pages/admin/SectionsManager";
 import OrdersList from "./pages/admin/OrdersList";
 import FeaturedManager from "./pages/admin/FeaturedManager";
+import PerformersList from "./pages/admin/PerformersList";
+import PerformerForm from "./pages/admin/PerformerForm";
+import CategoriesList from "./pages/admin/CategoriesList";
+import InventoryList from "./pages/admin/InventoryList";
+import InventoryForm from "./pages/admin/InventoryForm";
 
 const queryClient = new QueryClient();
 
@@ -51,6 +56,13 @@ const App = () => (
                 <Route path="venues/:venueId/sections" element={<SectionsManager />} />
                 <Route path="orders" element={<OrdersList />} />
                 <Route path="featured" element={<FeaturedManager />} />
+                <Route path="performers" element={<PerformersList />} />
+                <Route path="performers/new" element={<PerformerForm />} />
+                <Route path="performers/:id" element={<PerformerForm />} />
+                <Route path="categories" element={<CategoriesList />} />
+                <Route path="inventory" element={<InventoryList />} />
+                <Route path="inventory/new" element={<InventoryForm />} />
+                <Route path="inventory/:id" element={<InventoryForm />} />
               </Route>
 
               {/* Auth */}

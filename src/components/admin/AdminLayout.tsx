@@ -25,11 +25,10 @@ const navItems = [
   { path: '/admin/events', label: 'Events', icon: Calendar },
   { path: '/admin/venues', label: 'Venues', icon: MapPin },
   { path: '/admin/performers', label: 'Performers', icon: Users },
+  { path: '/admin/categories', label: 'Categories', icon: BarChart3 },
   { path: '/admin/inventory', label: 'Inventory', icon: Package },
   { path: '/admin/orders', label: 'Orders', icon: Ticket },
   { path: '/admin/featured', label: 'Featured', icon: Star },
-  { path: '/admin/analytics', label: 'Analytics', icon: BarChart3 },
-  { path: '/admin/settings', label: 'Settings', icon: Settings },
 ];
 
 const AdminLayout = () => {
