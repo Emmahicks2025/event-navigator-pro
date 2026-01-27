@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { MapPin, Calendar, Clock, HelpCircle, Filter, X, Flame } from 'lucide-react';
 import { allEvents } from '@/data/mockData';
 import { VenueMap, sections, Section } from '@/components/VenueMap';
+import { PinnacleBankArenaMap, pinnacleSections } from '@/components/PinnacleBankArenaMap';
 import { TicketListing, TicketListingItem } from '@/components/TicketListing';
 import { useCart } from '@/context/CartContext';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,10 @@ const EventDetail = () => {
   const [listings] = useState<TicketListingItem[]>(() => generateListings());
 
   const event = allEvents.find((e) => e.id === id);
+  
+  // Determine which venue map to use
+  const isPinnacleArena = event?.venue === 'Pinnacle Bank Arena';
+  const currentSections = isPinnacleArena ? pinnacleSections : sections;
 
   if (!event) {
     return (
@@ -209,12 +214,20 @@ const EventDetail = () => {
                 </div>
               )}
 
-              {/* Venue Map */}
-              <VenueMap
-                onSectionHover={setHoveredSection}
-                onSectionClick={handleSectionClick}
-                selectedSection={selectedSection}
-              />
+              {/* Venue Map - Choose based on venue */}
+              {isPinnacleArena ? (
+                <PinnacleBankArenaMap
+                  onSectionHover={setHoveredSection}
+                  onSectionClick={handleSectionClick}
+                  selectedSection={selectedSection}
+                />
+              ) : (
+                <VenueMap
+                  onSectionHover={setHoveredSection}
+                  onSectionClick={handleSectionClick}
+                  selectedSection={selectedSection}
+                />
+              )}
             </div>
           )}
         </div>
