@@ -448,9 +448,11 @@ const SectionsManager = ({ venueId: propVenueId, svgContent, embedded = false }:
         // Skip common non-section text
         if (id.toLowerCase().includes('stage') || id.toLowerCase().includes('mix')) return;
         
-        // Check if there's a corresponding section path
-        const sectionPath = svgDoc.querySelector(`#${id.replace(/^t/, '')}-section`) || 
-                           svgDoc.querySelector(`#${id}-section`);
+        // Check if there's a corresponding section path - use getElementById to handle IDs starting with numbers
+        const sectionIdVariant1 = id.replace(/^t/, '') + '-section';
+        const sectionIdVariant2 = id + '-section';
+        const sectionPath = svgDoc.getElementById(sectionIdVariant1) || 
+                           svgDoc.getElementById(sectionIdVariant2);
         if (sectionPath) {
           const sectionId = sectionPath.getAttribute('id');
           if (sectionId && !processedIds.has(sectionId)) {
