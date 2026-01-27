@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Loader2 } from 'lucide-react';
+import { ArrowLeft, Save, Loader2, Wand2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useCreateInventory, useUpdateInventory } from '@/hooks/useInventory';
+import { useEventSections, useAutoGenerateEventSections } from '@/hooks/useEventSections';
 
 const InventoryForm = () => {
   const { id } = useParams();
@@ -40,14 +41,15 @@ const InventoryForm = () => {
 
   const createInventory = useCreateInventory();
   const updateInventory = useUpdateInventory();
+  const autoGenerateSections = useAutoGenerateEventSections();
 
-  // Fetch events
+  // Fetch events with venue info
   const { data: events = [] } = useQuery({
     queryKey: ['events-for-inventory'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('events')
-        .select('id, title, event_date')
+        .select('id, title, event_date, venue_id')
         .eq('is_active', true)
         .order('event_date', { ascending: true });
       if (error) throw error;
@@ -55,23 +57,31 @@ const InventoryForm = () => {
     },
   });
 
-  // Fetch event sections for selected event
-  const { data: eventSections = [] } = useQuery({
-    queryKey: ['event-sections-for-inventory', selectedEventId],
-    queryFn: async () => {
-      if (!selectedEventId) return [];
-      const { data, error } = await supabase
-        .from('event_sections')
-        .select(`
-          *,
-          section:sections(id, name)
-        `)
-        .eq('event_id', selectedEventId);
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!selectedEventId,
-  });
+  // Fetch event sections for selected event using the hook
+  const { data: eventSections = [], isLoading: sectionsLoading, refetch: refetchSections } = useEventSections(selectedEventId);
+
+  // Get venue ID for selected event
+  const selectedEvent = events.find((e: any) => e.id === selectedEventId);
+
+  // Handle auto-generate sections
+  const handleAutoGenerateSections = async () => {
+    if (!selectedEventId || !selectedEvent?.venue_id) {
+      toast.error('Please select an event with a venue first');
+      return;
+    }
+
+    try {
+      await autoGenerateSections.mutateAsync({
+        eventId: selectedEventId,
+        venueId: selectedEvent.venue_id,
+        basePrice: 50,
+      });
+      toast.success('Event sections created from venue');
+      refetchSections();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to generate sections');
+    }
+  };
 
   // Fetch existing inventory if editing
   const { data: inventory, isLoading } = useQuery({
@@ -209,14 +219,43 @@ const InventoryForm = () => {
 
           {/* Section Selection */}
           <div>
-            <Label>Section *</Label>
+            <div className="flex items-center justify-between mb-1">
+              <Label>Section *</Label>
+              {selectedEventId && eventSections.length === 0 && !sectionsLoading && (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-xs"
+                  onClick={handleAutoGenerateSections}
+                  disabled={autoGenerateSections.isPending}
+                >
+                  {autoGenerateSections.isPending ? (
+                    <Loader2 size={12} className="animate-spin mr-1" />
+                  ) : (
+                    <Wand2 size={12} className="mr-1" />
+                  )}
+                  Generate from venue
+                </Button>
+              )}
+            </div>
             <Select
               value={formData.event_section_id}
               onValueChange={(value) => setFormData(prev => ({ ...prev, event_section_id: value }))}
-              disabled={!selectedEventId}
+              disabled={!selectedEventId || sectionsLoading}
             >
               <SelectTrigger>
-                <SelectValue placeholder={selectedEventId ? 'Select a section' : 'Select an event first'} />
+                <SelectValue 
+                  placeholder={
+                    !selectedEventId 
+                      ? 'Select an event first' 
+                      : sectionsLoading 
+                        ? 'Loading sections...' 
+                        : eventSections.length === 0 
+                          ? 'No sections - click "Generate from venue"'
+                          : 'Select a section'
+                  } 
+                />
               </SelectTrigger>
               <SelectContent>
                 {eventSections.map((es: any) => (
