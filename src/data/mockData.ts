@@ -174,6 +174,19 @@ export const allEvents: Event[] = [
     priceFrom: 175,
     priceTo: 1200,
   },
+  {
+    id: '13',
+    title: 'Tyler, the Creator',
+    date: 'Apr 24, 2026',
+    time: '7:00 PM',
+    venue: 'Pinnacle Bank Arena',
+    city: 'Lincoln',
+    state: 'NE',
+    category: 'concerts',
+    image: 'https://images.unsplash.com/photo-1459749411175-04bf5292ceea?w=800',
+    priceFrom: 95,
+    priceTo: 350,
+  },
 ];
 
 export const performers: Performer[] = [
