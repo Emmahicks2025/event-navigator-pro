@@ -6,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export const PerformersSection = () => {
   const [activeCategory, setActiveCategory] = useState('all');
-  const { data: performers = [], isLoading } = usePerformers({ category: activeCategory });
+  const { data: performers = [], isLoading } = usePerformers({ category: activeCategory, limit: 6 });
 
   return (
     <section className="py-16 bg-card/50">
