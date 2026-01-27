@@ -496,6 +496,69 @@ export type Database = {
           },
         ]
       }
+      sell_requests: {
+        Row: {
+          asking_price: number
+          city: string
+          contact_email: string
+          contact_name: string
+          contact_phone: string | null
+          created_at: string
+          event_date: string
+          event_name: string
+          id: string
+          notes: string | null
+          quantity: number
+          row_name: string | null
+          seat_numbers: string | null
+          section: string
+          status: string
+          updated_at: string
+          user_id: string | null
+          venue_name: string
+        }
+        Insert: {
+          asking_price: number
+          city: string
+          contact_email: string
+          contact_name: string
+          contact_phone?: string | null
+          created_at?: string
+          event_date: string
+          event_name: string
+          id?: string
+          notes?: string | null
+          quantity?: number
+          row_name?: string | null
+          seat_numbers?: string | null
+          section: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+          venue_name: string
+        }
+        Update: {
+          asking_price?: number
+          city?: string
+          contact_email?: string
+          contact_name?: string
+          contact_phone?: string | null
+          created_at?: string
+          event_date?: string
+          event_name?: string
+          id?: string
+          notes?: string | null
+          quantity?: number
+          row_name?: string | null
+          seat_numbers?: string | null
+          section?: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+          venue_name?: string
+        }
+        Relationships: []
+      }
       ticket_inventory: {
         Row: {
           created_at: string | null

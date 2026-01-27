@@ -15,6 +15,8 @@ import OrderConfirmation from "./pages/OrderConfirmation";
 import Category from "./pages/Category";
 import Search from "./pages/Search";
 import Auth from "./pages/Auth";
+import Cities from "./pages/Cities";
+import SellTickets from "./pages/SellTickets";
 import NotFound from "./pages/NotFound";
 
 // Admin
@@ -32,6 +34,7 @@ import PerformerForm from "./pages/admin/PerformerForm";
 import CategoriesList from "./pages/admin/CategoriesList";
 import InventoryList from "./pages/admin/InventoryList";
 import InventoryForm from "./pages/admin/InventoryForm";
+import SellRequestsList from "./pages/admin/SellRequestsList";
 
 const queryClient = new QueryClient();
 
@@ -63,6 +66,7 @@ const App = () => (
                 <Route path="inventory" element={<InventoryList />} />
                 <Route path="inventory/new" element={<InventoryForm />} />
                 <Route path="inventory/:id" element={<InventoryForm />} />
+                <Route path="sell-requests" element={<SellRequestsList />} />
               </Route>
 
               {/* Auth */}
@@ -115,6 +119,20 @@ const App = () => (
                 <div className="min-h-screen flex flex-col bg-background">
                   <Header />
                   <div className="flex-1"><Search /></div>
+                  <Footer />
+                </div>
+              } />
+              <Route path="/cities" element={
+                <div className="min-h-screen flex flex-col bg-background">
+                  <Header />
+                  <div className="flex-1"><Cities /></div>
+                  <Footer />
+                </div>
+              } />
+              <Route path="/sell" element={
+                <div className="min-h-screen flex flex-col bg-background">
+                  <Header />
+                  <div className="flex-1"><SellTickets /></div>
                   <Footer />
                 </div>
               } />
