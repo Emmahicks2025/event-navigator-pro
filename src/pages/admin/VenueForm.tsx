@@ -301,11 +301,6 @@ const VenueForm = () => {
           </Card>
         </div>
 
-        {/* Sections Manager - only show when editing and SVG exists */}
-        {isEditing && id && formData.svg_map && (
-          <SectionsManager venueId={id} svgContent={formData.svg_map} embedded={true} />
-        )}
-
         {/* Submit */}
         <div className="flex items-center gap-4">
           <Button type="submit" disabled={saving}>
@@ -326,6 +321,11 @@ const VenueForm = () => {
           </Button>
         </div>
       </form>
+
+      {/* Sections Manager - OUTSIDE the form to prevent form submission */}
+      {isEditing && id && formData.svg_map && (
+        <SectionsManager venueId={id} svgContent={formData.svg_map} embedded={true} />
+      )}
     </div>
   );
 };
