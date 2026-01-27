@@ -341,22 +341,123 @@ const SectionsManager = () => {
 
     setAutoDetecting(true);
     try {
-      const { data, error } = await supabase.functions.invoke('parse-svg-sections', {
-        body: { svgContent: venue.svg_map },
+      // Parse SVG locally to extract section IDs - much faster than sending to AI
+      const parser = new DOMParser();
+      const svgDoc = parser.parseFromString(venue.svg_map, 'image/svg+xml');
+      
+      // Find all interactive sections - look for groups with section data or paths with IDs
+      const sectionGroups = svgDoc.querySelectorAll('[id*="section"], [id*="group"], g[data-section-id], path[id]:not([id*="path"]):not([id*="defs"]):not([id*="style"])');
+      
+      const detectedSections: Array<{
+        svg_path: string;
+        name: string;
+        section_type: string;
+        capacity: number;
+        is_general_admission: boolean;
+      }> = [];
+
+      // Track processed IDs to avoid duplicates
+      const processedIds = new Set<string>();
+
+      sectionGroups.forEach((el) => {
+        const id = el.getAttribute('id') || el.getAttribute('data-section-id');
+        if (!id || processedIds.has(id)) return;
+        
+        // Skip style, defs, and common SVG element IDs
+        if (id.includes('style') || id.includes('defs') || id.includes('svg') || 
+            id.includes('parent') || id.includes('static') || id === 'sections') return;
+        
+        processedIds.add(id);
+
+        // Determine section type based on ID patterns
+        let sectionType = 'standard';
+        let isGA = false;
+        const idLower = id.toLowerCase();
+        
+        if (idLower.includes('pit') || idLower.includes('ga')) {
+          sectionType = 'pit';
+          isGA = true;
+        } else if (idLower.includes('floor') || /^[a-f][-_]?(section|group)?$/i.test(id) || /^[a-f]$/i.test(id)) {
+          sectionType = 'floor';
+        } else if (idLower.includes('vip')) {
+          sectionType = 'vip';
+        } else if (idLower.includes('suite')) {
+          sectionType = 'suite';
+        } else if (/^1\d{2}/.test(id) || idLower.includes('lower')) {
+          sectionType = 'lower';
+        } else if (/^[23]\d{2}/.test(id) || idLower.includes('upper')) {
+          sectionType = 'upper';
+        }
+
+        // Generate friendly name from ID
+        let name = id
+          .replace(/[-_](section|group)$/i, '')
+          .replace(/[-_]/g, ' ')
+          .replace(/\b\w/g, c => c.toUpperCase())
+          .trim();
+        
+        // For single letters or short IDs, prefix with "Section"
+        if (name.length <= 2) {
+          name = `Section ${name}`;
+        }
+
+        detectedSections.push({
+          svg_path: id.replace(/-group$/, '-section').replace(/_group$/, '_section'),
+          name,
+          section_type: sectionType,
+          capacity: sectionType === 'pit' ? 500 : sectionType === 'floor' ? 200 : 100,
+          is_general_admission: isGA,
+        });
       });
 
-      if (error) throw error;
+      // Also look for text labels that might indicate sections (backup method)
+      const textElements = svgDoc.querySelectorAll('text[id]');
+      textElements.forEach((el) => {
+        const id = el.getAttribute('id');
+        if (!id || processedIds.has(id)) return;
+        
+        // Skip common non-section text
+        if (id.toLowerCase().includes('stage') || id.toLowerCase().includes('mix')) return;
+        
+        // Check if there's a corresponding section path
+        const sectionPath = svgDoc.querySelector(`#${id.replace(/^t/, '')}-section`) || 
+                           svgDoc.querySelector(`#${id}-section`);
+        if (sectionPath) {
+          const sectionId = sectionPath.getAttribute('id');
+          if (sectionId && !processedIds.has(sectionId)) {
+            processedIds.add(sectionId);
+            
+            const textContent = el.textContent?.trim() || id;
+            let sectionType = 'standard';
+            let isGA = false;
+            
+            if (/^[A-F]$/i.test(textContent)) {
+              sectionType = 'floor';
+            } else if (/^1\d{2}/.test(textContent)) {
+              sectionType = 'lower';
+            } else if (/^[23]\d{2}/.test(textContent)) {
+              sectionType = 'upper';
+            }
 
-      const parsedSections = data?.sections || [];
-      
-      if (parsedSections.length === 0) {
-        toast.info('No sections detected in the SVG');
+            detectedSections.push({
+              svg_path: sectionId,
+              name: `Section ${textContent}`,
+              section_type: sectionType,
+              capacity: sectionType === 'floor' ? 200 : 100,
+              is_general_admission: isGA,
+            });
+          }
+        }
+      });
+
+      if (detectedSections.length === 0) {
+        toast.info('No sections detected in the SVG. Try manual assignment.');
         return;
       }
 
       // Filter out sections that already exist
       const existingSvgPaths = new Set(sections.map(s => s.svg_path));
-      const newSections = parsedSections.filter((s: any) => !existingSvgPaths.has(s.svg_path));
+      const newSections = detectedSections.filter(s => !existingSvgPaths.has(s.svg_path));
 
       if (newSections.length === 0) {
         toast.info('All detected sections are already assigned');
@@ -364,16 +465,16 @@ const SectionsManager = () => {
       }
 
       // Insert new sections
-      const sectionsToInsert = newSections.map((s: any) => ({
+      const sectionsToInsert = newSections.map((s, i) => ({
         venue_id: venueId,
         name: s.name,
-        section_type: s.section_type || 'standard',
-        capacity: s.capacity || 100,
-        row_count: s.row_count || 10,
-        seats_per_row: s.seats_per_row || 10,
-        is_general_admission: s.is_general_admission || false,
+        section_type: s.section_type,
+        capacity: s.capacity,
+        row_count: 10,
+        seats_per_row: Math.ceil(s.capacity / 10),
+        is_general_admission: s.is_general_admission,
         svg_path: s.svg_path,
-        sort_order: s.sort_order || 0,
+        sort_order: i,
       }));
 
       const { error: insertError } = await supabase
