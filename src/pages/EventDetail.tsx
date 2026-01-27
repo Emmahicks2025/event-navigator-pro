@@ -49,10 +49,38 @@ const EventDetail = () => {
     }));
   }, [tickets]);
 
-  // Get sections from event sections
+  // Calculate actual inventory count per section from tickets
+  const sectionInventoryMap = useMemo(() => {
+    const map = new Map<string, { count: number; minPrice: number }>();
+    tickets.forEach((ticket: any) => {
+      const sectionId = ticket.event_section?.section_id;
+      if (sectionId) {
+        const existing = map.get(sectionId) || { count: 0, minPrice: Infinity };
+        map.set(sectionId, {
+          count: existing.count + (ticket.quantity || 1),
+          minPrice: Math.min(existing.minPrice, Number(ticket.price) || Infinity),
+        });
+      }
+    });
+    return map;
+  }, [tickets]);
+
+  // Get sections from event sections with real inventory counts
   const sections = useMemo(() => {
     return eventSections.map((es: any) => es.section).filter(Boolean);
   }, [eventSections]);
+
+  // Enhance event sections with real inventory data
+  const enrichedEventSections = useMemo(() => {
+    return eventSections.map((es: any) => {
+      const inventoryData = sectionInventoryMap.get(es.section_id);
+      return {
+        ...es,
+        available_count: inventoryData?.count || 0,
+        price: inventoryData?.minPrice !== Infinity ? inventoryData.minPrice : es.price,
+      };
+    });
+  }, [eventSections, sectionInventoryMap]);
 
   // Sort and filter listings
   const sortedListings = useMemo(() => {
@@ -278,7 +306,7 @@ const EventDetail = () => {
                   svgMap={dbEvent.venue.svg_map}
                   viewBox={dbEvent.venue.map_viewbox}
                   sections={sections}
-                  eventSections={eventSections}
+                  eventSections={enrichedEventSections}
                   selectedSectionId={selectedSectionId}
                   onSectionClick={handleSectionClick}
                   onSectionHover={handleSectionHover}
