@@ -55,7 +55,8 @@ const InventoryList = () => {
     eventId: '',
     minTickets: 1,
     maxTickets: 500,
-    basePrice: 50,
+    minPrice: 25,
+    maxPrice: 200,
   });
 
   const { data: inventory = [], isLoading } = useInventory({
@@ -119,7 +120,7 @@ const InventoryList = () => {
         await autoGenerateSections.mutateAsync({
           eventId: autoGenConfig.eventId,
           venueId: selectedEvent.venue_id,
-          basePrice: autoGenConfig.basePrice,
+          basePrice: autoGenConfig.minPrice, // Use minPrice as base
         });
         toast.success('Event sections created');
       } catch (err: any) {
@@ -129,16 +130,18 @@ const InventoryList = () => {
         }
       }
 
-      // Then generate inventory
+      // Then generate inventory with price range
       await autoGenerateInventory.mutateAsync({
         eventId: autoGenConfig.eventId,
         minTickets: autoGenConfig.minTickets,
         maxTickets: autoGenConfig.maxTickets,
+        minPrice: autoGenConfig.minPrice,
+        maxPrice: autoGenConfig.maxPrice,
       });
 
-      toast.success(`Inventory generated with ${autoGenConfig.minTickets}-${autoGenConfig.maxTickets} tickets distributed across sections`);
+      toast.success(`Inventory generated with ${autoGenConfig.minTickets}-${autoGenConfig.maxTickets} tickets at $${autoGenConfig.minPrice}-$${autoGenConfig.maxPrice}`);
       setShowAutoGenerate(false);
-      setAutoGenConfig({ eventId: '', minTickets: 1, maxTickets: 500, basePrice: 50 });
+      setAutoGenConfig({ eventId: '', minTickets: 1, maxTickets: 500, minPrice: 25, maxPrice: 200 });
     } catch (error: any) {
       toast.error(error.message || 'Failed to generate inventory');
     }
@@ -397,20 +400,33 @@ const InventoryList = () => {
               </div>
             </div>
 
-            <div>
-              <Label htmlFor="basePrice">Base Price ($)</Label>
-              <Input
-                id="basePrice"
-                type="number"
-                min="1"
-                step="0.01"
-                value={autoGenConfig.basePrice}
-                onChange={(e) => setAutoGenConfig(prev => ({ ...prev, basePrice: Number(e.target.value) || 50 }))}
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Prices will vary by section type (VIP 3x, Floor 2.5x, Lower 1.8x, Upper 0.8x)
-              </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="minPrice">Min Price ($)</Label>
+                <Input
+                  id="minPrice"
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  value={autoGenConfig.minPrice}
+                  onChange={(e) => setAutoGenConfig(prev => ({ ...prev, minPrice: Number(e.target.value) || 25 }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="maxPrice">Max Price ($)</Label>
+                <Input
+                  id="maxPrice"
+                  type="number"
+                  min="1"
+                  step="0.01"
+                  value={autoGenConfig.maxPrice}
+                  onChange={(e) => setAutoGenConfig(prev => ({ ...prev, maxPrice: Number(e.target.value) || 200 }))}
+                />
+              </div>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Prices adjusted by section type (VIP +50%, Floor +30%, Upper -30%)
+            </p>
           </div>
 
           <DialogFooter>
