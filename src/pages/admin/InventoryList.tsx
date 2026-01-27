@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Edit, Trash2, DollarSign, Package } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, DollarSign, Package, Wand2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { Label } from '@/components/ui/label';
 import {
   Table,
   TableBody,
@@ -30,8 +31,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { useInventory, useDeleteInventory } from '@/hooks/useInventory';
+import { useAutoGenerateEventSections, useAutoGenerateInventory } from '@/hooks/useEventSections';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -40,19 +50,28 @@ const InventoryList = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [eventFilter, setEventFilter] = useState<string>('all');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showAutoGenerate, setShowAutoGenerate] = useState(false);
+  const [autoGenConfig, setAutoGenConfig] = useState({
+    eventId: '',
+    minTickets: 1,
+    maxTickets: 500,
+    basePrice: 50,
+  });
 
   const { data: inventory = [], isLoading } = useInventory({
     status: statusFilter !== 'all' ? statusFilter : undefined,
   });
   const deleteInventory = useDeleteInventory();
+  const autoGenerateSections = useAutoGenerateEventSections();
+  const autoGenerateInventory = useAutoGenerateInventory();
 
-  // Fetch events for filter
+  // Fetch events for filter with venue info
   const { data: events = [] } = useQuery({
-    queryKey: ['events-for-filter'],
+    queryKey: ['events-for-filter-with-venue'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('events')
-        .select('id, title')
+        .select('id, title, venue_id, event_date')
         .eq('is_active', true)
         .order('title');
       if (error) throw error;
@@ -82,6 +101,49 @@ const InventoryList = () => {
     }
   };
 
+  const handleAutoGenerate = async () => {
+    if (!autoGenConfig.eventId) {
+      toast.error('Please select an event');
+      return;
+    }
+    
+    const selectedEvent = events.find((e: any) => e.id === autoGenConfig.eventId);
+    if (!selectedEvent?.venue_id) {
+      toast.error('Selected event has no venue');
+      return;
+    }
+
+    try {
+      // First, generate event sections from venue sections
+      try {
+        await autoGenerateSections.mutateAsync({
+          eventId: autoGenConfig.eventId,
+          venueId: selectedEvent.venue_id,
+          basePrice: autoGenConfig.basePrice,
+        });
+        toast.success('Event sections created');
+      } catch (err: any) {
+        // Sections might already exist, continue
+        if (!err.message?.includes('already exist')) {
+          console.warn('Section generation:', err.message);
+        }
+      }
+
+      // Then generate inventory
+      await autoGenerateInventory.mutateAsync({
+        eventId: autoGenConfig.eventId,
+        minTickets: autoGenConfig.minTickets,
+        maxTickets: autoGenConfig.maxTickets,
+      });
+
+      toast.success(`Inventory generated with ${autoGenConfig.minTickets}-${autoGenConfig.maxTickets} tickets distributed across sections`);
+      setShowAutoGenerate(false);
+      setAutoGenConfig({ eventId: '', minTickets: 1, maxTickets: 500, basePrice: 50 });
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to generate inventory');
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'available':
@@ -95,20 +157,28 @@ const InventoryList = () => {
     }
   };
 
+  const isGenerating = autoGenerateSections.isPending || autoGenerateInventory.isPending;
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Ticket Inventory</h1>
           <p className="text-muted-foreground">Manage ticket listings across all events</p>
         </div>
-        <Button asChild>
-          <Link to="/admin/inventory/new">
-            <Plus size={16} className="mr-2" />
-            Add Inventory
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setShowAutoGenerate(true)}>
+            <Wand2 size={16} className="mr-2" />
+            Auto-Generate
+          </Button>
+          <Button asChild>
+            <Link to="/admin/inventory/new">
+              <Plus size={16} className="mr-2" />
+              Add Inventory
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -273,6 +343,96 @@ const InventoryList = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Auto-Generate Dialog */}
+      <Dialog open={showAutoGenerate} onOpenChange={setShowAutoGenerate}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Auto-Generate Inventory</DialogTitle>
+            <DialogDescription>
+              Automatically create event sections and distribute tickets randomly across all sections.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div>
+              <Label>Event *</Label>
+              <Select
+                value={autoGenConfig.eventId}
+                onValueChange={(value) => setAutoGenConfig(prev => ({ ...prev, eventId: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an event" />
+                </SelectTrigger>
+                <SelectContent>
+                  {events.map((event: any) => (
+                    <SelectItem key={event.id} value={event.id}>
+                      {event.title} ({new Date(event.event_date).toLocaleDateString()})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="minTickets">Min Tickets</Label>
+                <Input
+                  id="minTickets"
+                  type="number"
+                  min="1"
+                  value={autoGenConfig.minTickets}
+                  onChange={(e) => setAutoGenConfig(prev => ({ ...prev, minTickets: Number(e.target.value) || 1 }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="maxTickets">Max Tickets</Label>
+                <Input
+                  id="maxTickets"
+                  type="number"
+                  min="1"
+                  value={autoGenConfig.maxTickets}
+                  onChange={(e) => setAutoGenConfig(prev => ({ ...prev, maxTickets: Number(e.target.value) || 500 }))}
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="basePrice">Base Price ($)</Label>
+              <Input
+                id="basePrice"
+                type="number"
+                min="1"
+                step="0.01"
+                value={autoGenConfig.basePrice}
+                onChange={(e) => setAutoGenConfig(prev => ({ ...prev, basePrice: Number(e.target.value) || 50 }))}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Prices will vary by section type (VIP 3x, Floor 2.5x, Lower 1.8x, Upper 0.8x)
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAutoGenerate(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAutoGenerate} disabled={isGenerating || !autoGenConfig.eventId}>
+              {isGenerating ? (
+                <>
+                  <Loader2 size={16} className="animate-spin mr-2" />
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <Wand2 size={16} className="mr-2" />
+                  Generate
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
