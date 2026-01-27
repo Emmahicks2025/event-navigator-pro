@@ -1,14 +1,14 @@
 import { useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { MapPin, Calendar, Clock, HelpCircle, Filter, X, Flame } from 'lucide-react';
-import { allEvents } from '@/data/mockData';
-import { VenueMap, sections, Section } from '@/components/VenueMap';
-import { PinnacleBankArenaMap, pinnacleSections } from '@/components/PinnacleBankArenaMap';
+import { MapPin, Calendar, Clock, HelpCircle, Filter, X, Flame, Loader2 } from 'lucide-react';
+import { useEvent, useEventSections, useEventTickets } from '@/hooks/useEvents';
+import { DynamicVenueMap } from '@/components/DynamicVenueMap';
 import { TicketListing, TicketListingItem } from '@/components/TicketListing';
 import { useCart } from '@/context/CartContext';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select,
   SelectContent,
@@ -16,77 +16,67 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-
-// Generate mock ticket listings
-const generateListings = (): TicketListingItem[] => {
-  const listings: TicketListingItem[] = [];
-  const sectionNames = [
-    'Upper Concourse 202', 'Upper Concourse 201', 'Upper Concourse 306',
-    'Upper Concourse 312', 'Upper Concourse 302', 'Lower Level 112',
-    'Lower Level 113', 'Lower Level 106', 'Floor A', 'Floor B', 'GA Pit'
-  ];
-  
-  sectionNames.forEach((section, index) => {
-    const numListings = Math.floor(Math.random() * 3) + 1;
-    for (let i = 0; i < numListings; i++) {
-      const isFloor = section.includes('Floor') || section.includes('GA');
-      const isLower = section.includes('Lower');
-      const basePrice = isFloor ? 250 : isLower ? 150 : 100;
-      
-      listings.push({
-        id: `listing-${index}-${i}`,
-        section,
-        row: `${Math.floor(Math.random() * 15) + 1}`,
-        seats: Math.floor(Math.random() * 4) + 1,
-        price: basePrice + Math.floor(Math.random() * 50),
-        isLowestPrice: i === 0 && Math.random() > 0.5,
-        hasClearView: Math.random() > 0.7,
-      });
-    }
-  });
-  
-  return listings.sort((a, b) => a.price - b.price);
-};
+import { transformDbEventToEvent } from '@/types/database';
 
 const EventDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { addToCart } = useCart();
-  const [selectedSection, setSelectedSection] = useState<string | null>(null);
-  const [hoveredSection, setHoveredSection] = useState<Section | null>(null);
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
+  const [hoveredSection, setHoveredSection] = useState<any>(null);
   const [showMap, setShowMap] = useState(true);
   const [sortBy, setSortBy] = useState('price-low');
   const [ticketCount, setTicketCount] = useState(1);
-  const [listings] = useState<TicketListingItem[]>(() => generateListings());
 
-  const event = allEvents.find((e) => e.id === id);
-  
-  // Determine which venue map to use
-  const isPinnacleArena = event?.venue === 'Pinnacle Bank Arena';
-  const currentSections = isPinnacleArena ? pinnacleSections : sections;
+  // Fetch data from database
+  const { data: dbEvent, isLoading: loadingEvent } = useEvent(id);
+  const { data: eventSections = [], isLoading: loadingSections } = useEventSections(id);
+  const { data: tickets = [], isLoading: loadingTickets } = useEventTickets(id);
 
-  if (!event) {
-    return (
-      <div className="pt-32 min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-foreground mb-4">Event not found</h1>
-          <Button onClick={() => navigate('/')}>Go Home</Button>
-        </div>
-      </div>
-    );
-  }
+  // Transform to legacy format for compatibility
+  const event = dbEvent ? transformDbEventToEvent(dbEvent) : null;
 
+  // Transform tickets to TicketListingItem format
+  const listings: TicketListingItem[] = useMemo(() => {
+    return tickets.map((ticket: any) => ({
+      id: ticket.id,
+      section: ticket.event_section?.section?.name || 'Unknown Section',
+      row: ticket.row_name || 'GA',
+      seats: ticket.quantity,
+      price: Number(ticket.price),
+      isLowestPrice: ticket.is_lowest_price || false,
+      hasClearView: ticket.has_clear_view || false,
+    }));
+  }, [tickets]);
+
+  // Get sections from event sections
+  const sections = useMemo(() => {
+    return eventSections.map((es: any) => es.section).filter(Boolean);
+  }, [eventSections]);
+
+  // Sort and filter listings
   const sortedListings = useMemo(() => {
-    const filtered = listings.filter(l => l.seats >= ticketCount);
+    let filtered = listings.filter(l => l.seats >= ticketCount);
+    
+    if (selectedSectionId) {
+      const selectedSection = eventSections.find((es: any) => es.section_id === selectedSectionId);
+      if (selectedSection) {
+        filtered = filtered.filter(l => 
+          l.section === (selectedSection as any).section?.name
+        );
+      }
+    }
+    
     return [...filtered].sort((a, b) => {
       if (sortBy === 'price-low') return a.price - b.price;
       if (sortBy === 'price-high') return b.price - a.price;
       return 0;
     });
-  }, [listings, sortBy, ticketCount]);
+  }, [listings, sortBy, ticketCount, selectedSectionId, eventSections]);
 
   const handleSelectListing = (listing: TicketListingItem) => {
-    // Create seats from listing
+    if (!event) return;
+    
     const seats = Array.from({ length: listing.seats }, (_, i) => ({
       id: `${listing.id}-seat-${i}`,
       row: listing.row,
@@ -102,8 +92,57 @@ const EventDetail = () => {
   };
 
   const handleSectionClick = (sectionId: string) => {
-    setSelectedSection(sectionId === selectedSection ? null : sectionId);
+    setSelectedSectionId(sectionId === selectedSectionId ? null : sectionId);
   };
+
+  const handleSectionHover = (section: any, eventSection?: any) => {
+    if (section && eventSection) {
+      setHoveredSection({
+        name: section.name,
+        available: eventSection.available_count,
+        priceFrom: Number(eventSection.price),
+      });
+    } else {
+      setHoveredSection(null);
+    }
+  };
+
+  // Loading state
+  if (loadingEvent) {
+    return (
+      <main className="pt-20 min-h-screen bg-background">
+        <div className="container mx-auto px-4 py-6">
+          <Skeleton className="h-8 w-64 mb-4" />
+          <Skeleton className="h-4 w-96" />
+        </div>
+        <div className="container mx-auto px-4 pb-12">
+          <div className="flex gap-6">
+            <div className="flex-1 max-w-2xl space-y-4">
+              {[...Array(5)].map((_, i) => (
+                <Skeleton key={i} className="h-20 rounded-lg" />
+              ))}
+            </div>
+            <div className="flex-1 max-w-xl">
+              <Skeleton className="h-96 rounded-lg" />
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (!event || !dbEvent) {
+    return (
+      <div className="pt-32 min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-foreground mb-4">Event not found</h1>
+          <Button onClick={() => navigate('/')}>Go Home</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const hasVenueMap = dbEvent.venue?.svg_map;
 
   return (
     <main className="pt-20 min-h-screen bg-background">
@@ -152,22 +191,27 @@ const EventDetail = () => {
                     {ticketCount}
                   </span>
                 </Button>
-                <Button variant="ghost" size="sm">
-                  <X size={14} />
-                </Button>
+                {selectedSectionId && (
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedSectionId(null)}>
+                    <X size={14} className="mr-1" />
+                    Clear filter
+                  </Button>
+                )}
               </div>
               
               <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2">
-                  <Switch
-                    checked={showMap}
-                    onCheckedChange={setShowMap}
-                    id="show-map"
-                  />
-                  <label htmlFor="show-map" className="text-sm text-muted-foreground cursor-pointer">
-                    Map
-                  </label>
-                </div>
+                {hasVenueMap && (
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={showMap}
+                      onCheckedChange={setShowMap}
+                      id="show-map"
+                    />
+                    <label htmlFor="show-map" className="text-sm text-muted-foreground cursor-pointer">
+                      Map
+                    </label>
+                  </div>
+                )}
                 
                 <Select value={sortBy} onValueChange={setSortBy}>
                   <SelectTrigger className="w-[180px] bg-transparent border-0">
@@ -182,50 +226,62 @@ const EventDetail = () => {
             </div>
 
             {/* Urgency Banner */}
-            <div className="flex items-center justify-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg py-3 mb-4">
-              <Flame size={18} className="text-amber-500" />
-              <span className="text-sm font-medium text-amber-500">
-                Tickets are selling fast! Secure yours now.
-              </span>
-            </div>
+            {listings.length > 0 && (
+              <div className="flex items-center justify-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg py-3 mb-4">
+                <Flame size={18} className="text-amber-500" />
+                <span className="text-sm font-medium text-amber-500">
+                  Tickets are selling fast! Secure yours now.
+                </span>
+              </div>
+            )}
 
             {/* Ticket Listings */}
-            <TicketListing 
-              listings={sortedListings}
-              onSelect={handleSelectListing}
-            />
+            {loadingTickets ? (
+              <div className="space-y-3">
+                {[...Array(5)].map((_, i) => (
+                  <Skeleton key={i} className="h-20 rounded-lg" />
+                ))}
+              </div>
+            ) : sortedListings.length > 0 ? (
+              <TicketListing 
+                listings={sortedListings}
+                onSelect={handleSelectListing}
+              />
+            ) : (
+              <div className="text-center py-12 bg-card rounded-lg border border-border">
+                <p className="text-muted-foreground">
+                  {selectedSectionId 
+                    ? 'No tickets available in this section. Try another section.' 
+                    : 'No tickets available for this event yet.'}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Right Side - Map */}
-          {showMap && (
+          {showMap && hasVenueMap && (
             <div className="flex-1 max-w-xl sticky top-24 self-start">
-              {/* Find Tickets Timer */}
-              <div className="flex items-center justify-center gap-2 mb-4 bg-card rounded-lg p-3 border border-border">
-                <span className="text-sm text-muted-foreground">Find Tickets</span>
-                <HelpCircle size={14} className="text-muted-foreground" />
-                <span className="text-2xl font-bold text-primary ml-2">06:40</span>
-              </div>
-
               {/* Section Tooltip */}
               {hoveredSection && (
-                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-card border border-border rounded-lg p-3 shadow-xl">
-                  <p className="font-bold text-foreground">{hoveredSection.available} listings</p>
-                  <p className="text-sm text-muted-foreground">From ${hoveredSection.priceFrom}</p>
+                <div className="absolute top-12 left-1/2 -translate-x-1/2 z-20 bg-card border border-border rounded-lg p-3 shadow-xl">
+                  <p className="font-bold text-foreground">{hoveredSection.name}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {hoveredSection.available} available from ${hoveredSection.priceFrom}
+                  </p>
                 </div>
               )}
 
-              {/* Venue Map - Choose based on venue */}
-              {isPinnacleArena ? (
-                <PinnacleBankArenaMap
-                  onSectionHover={setHoveredSection}
-                  onSectionClick={handleSectionClick}
-                  selectedSection={selectedSection}
-                />
+              {loadingSections ? (
+                <Skeleton className="h-96 rounded-lg" />
               ) : (
-                <VenueMap
-                  onSectionHover={setHoveredSection}
+                <DynamicVenueMap
+                  svgMap={dbEvent.venue.svg_map}
+                  viewBox={dbEvent.venue.map_viewbox}
+                  sections={sections}
+                  eventSections={eventSections}
+                  selectedSectionId={selectedSectionId}
                   onSectionClick={handleSectionClick}
-                  selectedSection={selectedSection}
+                  onSectionHover={handleSectionHover}
                 />
               )}
             </div>

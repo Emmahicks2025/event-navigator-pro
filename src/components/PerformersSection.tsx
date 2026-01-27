@@ -1,14 +1,12 @@
 import { useState } from 'react';
 import { PerformerCard } from './PerformerCard';
 import { CategoryTabs } from './CategoryTabs';
-import { performers } from '@/data/mockData';
+import { usePerformers } from '@/hooks/usePerformers';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export const PerformersSection = () => {
   const [activeCategory, setActiveCategory] = useState('all');
-
-  const filteredPerformers = activeCategory === 'all'
-    ? performers
-    : performers.filter((p) => p.category === activeCategory);
+  const { data: performers = [], isLoading } = usePerformers({ category: activeCategory });
 
   return (
     <section className="py-16 bg-card/50">
@@ -18,11 +16,27 @@ export const PerformersSection = () => {
           <CategoryTabs activeCategory={activeCategory} onCategoryChange={setActiveCategory} />
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8">
-          {filteredPerformers.map((performer) => (
-            <PerformerCard key={performer.id} performer={performer} />
-          ))}
-        </div>
+        {isLoading ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="text-center">
+                <Skeleton className="w-24 h-24 mx-auto rounded-full mb-3" />
+                <Skeleton className="h-4 w-20 mx-auto mb-1" />
+                <Skeleton className="h-3 w-16 mx-auto" />
+              </div>
+            ))}
+          </div>
+        ) : performers.length > 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8">
+            {performers.map((performer) => (
+              <PerformerCard key={performer.id} performer={performer} />
+            ))}
+          </div>
+        ) : (
+          <div className="text-center py-8 text-muted-foreground">
+            No performers found in this category
+          </div>
+        )}
       </div>
     </section>
   );

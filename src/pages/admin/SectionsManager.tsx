@@ -1,17 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { ArrowLeft, Plus, Edit, Trash2, Save, X } from 'lucide-react';
+import { ArrowLeft, Plus, Edit, Trash2, MousePointer, ZoomIn, ZoomOut, RotateCcw, Check, X } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -20,6 +19,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface Section {
   id: string;
@@ -37,6 +41,14 @@ interface Venue {
   id: string;
   name: string;
   svg_map: string | null;
+  map_viewbox: string | null;
+}
+
+interface SVGElement {
+  id: string;
+  tagName: string;
+  pathData: string | null;
+  transform: string | null;
 }
 
 const SectionTypes = [
@@ -46,17 +58,24 @@ const SectionTypes = [
   { value: 'pit', label: 'GA Pit' },
   { value: 'vip', label: 'VIP' },
   { value: 'suite', label: 'Suite' },
+  { value: 'standard', label: 'Standard' },
 ];
 
 const SectionsManager = () => {
   const { venueId } = useParams();
   const navigate = useNavigate();
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  
   const [venue, setVenue] = useState<Venue | null>(null);
   const [sections, setSections] = useState<Section[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingSection, setEditingSection] = useState<Section | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedElement, setSelectedElement] = useState<SVGElement | null>(null);
+  const [hoveredElementId, setHoveredElementId] = useState<string | null>(null);
+  const [mapMode, setMapMode] = useState<'view' | 'assign'>('assign');
+  const [zoom, setZoom] = useState(1);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -69,16 +88,31 @@ const SectionsManager = () => {
     sort_order: '0',
   });
 
+  // Map section names to SVG element IDs
+  const sectionElementMap = new Map<string, Section>();
+  sections.forEach(section => {
+    if (section.svg_path) {
+      sectionElementMap.set(section.svg_path, section);
+    }
+  });
+
   useEffect(() => {
     if (venueId) {
       fetchVenueAndSections();
     }
   }, [venueId]);
 
+  // Setup SVG interactivity after venue loads
+  useEffect(() => {
+    if (venue?.svg_map && mapContainerRef.current) {
+      setupSVGInteractivity();
+    }
+  }, [venue?.svg_map, sections, mapMode]);
+
   const fetchVenueAndSections = async () => {
     try {
       const [venueRes, sectionsRes] = await Promise.all([
-        supabase.from('venues').select('id, name, svg_map').eq('id', venueId).single(),
+        supabase.from('venues').select('id, name, svg_map, map_viewbox').eq('id', venueId).single(),
         supabase.from('sections').select('*').eq('venue_id', venueId).order('sort_order'),
       ]);
 
@@ -94,23 +128,121 @@ const SectionsManager = () => {
     }
   };
 
-  const openCreateDialog = () => {
-    setEditingSection(null);
-    setFormData({
-      name: '',
-      section_type: 'standard',
-      capacity: '100',
-      row_count: '10',
-      seats_per_row: '10',
-      is_general_admission: false,
-      svg_path: '',
-      sort_order: String(sections.length),
+  const setupSVGInteractivity = useCallback(() => {
+    const container = mapContainerRef.current;
+    if (!container) return;
+
+    const svgElement = container.querySelector('svg');
+    if (!svgElement) return;
+
+    // Find all clickable elements (paths, polygons, rects, circles with IDs)
+    const clickableElements = svgElement.querySelectorAll('path[id], polygon[id], rect[id], circle[id], g[id]');
+    
+    clickableElements.forEach((element) => {
+      const id = element.getAttribute('id');
+      if (!id) return;
+
+      // Check if this element is already assigned to a section
+      const assignedSection = sections.find(s => s.svg_path === id);
+      
+      // Apply styles based on assignment status
+      if (assignedSection) {
+        element.classList.add('section-assigned');
+        element.setAttribute('data-section-id', assignedSection.id);
+        element.setAttribute('data-section-name', assignedSection.name);
+      } else {
+        element.classList.add('section-unassigned');
+      }
+
+      // Add cursor style
+      (element as HTMLElement).style.cursor = 'pointer';
+      
+      // Add event listeners
+      element.addEventListener('mouseenter', () => {
+        setHoveredElementId(id);
+        element.classList.add('section-hovered');
+      });
+      
+      element.addEventListener('mouseleave', () => {
+        setHoveredElementId(null);
+        element.classList.remove('section-hovered');
+      });
+      
+      element.addEventListener('click', (e) => {
+        e.stopPropagation();
+        handleElementClick(element as SVGElement & Element);
+      });
     });
-    setDialogOpen(true);
+
+    // Add styles
+    const styleId = 'section-manager-styles';
+    let styleEl = document.getElementById(styleId);
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = styleId;
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = `
+      .section-assigned {
+        fill: hsl(var(--primary)) !important;
+        fill-opacity: 0.6 !important;
+        stroke: hsl(var(--primary)) !important;
+        stroke-width: 2px !important;
+      }
+      .section-unassigned {
+        fill: hsl(var(--muted-foreground)) !important;
+        fill-opacity: 0.3 !important;
+        stroke: hsl(var(--border)) !important;
+        stroke-width: 1px !important;
+      }
+      .section-hovered {
+        fill-opacity: 0.8 !important;
+        stroke-width: 3px !important;
+        filter: brightness(1.1);
+      }
+      .section-selected {
+        fill: hsl(var(--success)) !important;
+        fill-opacity: 0.7 !important;
+        stroke: hsl(var(--success)) !important;
+        stroke-width: 3px !important;
+      }
+    `;
+  }, [sections]);
+
+  const handleElementClick = (element: Element) => {
+    const id = element.getAttribute('id');
+    if (!id) return;
+
+    // Check if already assigned
+    const existingSection = sections.find(s => s.svg_path === id);
+    
+    if (existingSection) {
+      // Open edit dialog for existing section
+      openEditDialog(existingSection);
+    } else {
+      // Create new section with this element
+      const pathData = element.getAttribute('d') || element.getAttribute('points') || null;
+      const transform = element.getAttribute('transform') || null;
+      
+      setSelectedElement({ id, tagName: element.tagName, pathData, transform });
+      setFormData({
+        name: id.replace(/_/g, ' ').replace(/-/g, ' '),
+        section_type: 'standard',
+        capacity: '100',
+        row_count: '10',
+        seats_per_row: '10',
+        is_general_admission: false,
+        svg_path: id,
+        sort_order: String(sections.length),
+      });
+      setEditingSection(null);
+      setDialogOpen(true);
+    }
   };
 
   const openEditDialog = (section: Section) => {
     setEditingSection(section);
+    setSelectedElement(null);
     setFormData({
       name: section.name,
       section_type: section.section_type,
@@ -120,6 +252,22 @@ const SectionsManager = () => {
       is_general_admission: section.is_general_admission,
       svg_path: section.svg_path || '',
       sort_order: String(section.sort_order),
+    });
+    setDialogOpen(true);
+  };
+
+  const openCreateDialog = () => {
+    setEditingSection(null);
+    setSelectedElement(null);
+    setFormData({
+      name: '',
+      section_type: 'standard',
+      capacity: '100',
+      row_count: '10',
+      seats_per_row: '10',
+      is_general_admission: false,
+      svg_path: '',
+      sort_order: String(sections.length),
     });
     setDialogOpen(true);
   };
@@ -162,6 +310,7 @@ const SectionsManager = () => {
       }
 
       setDialogOpen(false);
+      setSelectedElement(null);
       fetchVenueAndSections();
     } catch (err: any) {
       toast.error(err.message || 'Failed to save section');
@@ -183,6 +332,11 @@ const SectionsManager = () => {
     }
   };
 
+  const getHoveredSection = () => {
+    if (!hoveredElementId) return null;
+    return sections.find(s => s.svg_path === hoveredElementId);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -198,85 +352,155 @@ const SectionsManager = () => {
           <ArrowLeft size={20} />
         </Button>
         <div className="flex-1">
-          <h2 className="text-2xl font-bold text-foreground">Manage Sections</h2>
-          <p className="text-muted-foreground">{venue?.name}</p>
+          <h2 className="text-2xl font-bold text-foreground">Visual Section Mapper</h2>
+          <p className="text-muted-foreground">{venue?.name} — Click on map sections to assign them</p>
         </div>
-        <Button onClick={openCreateDialog}>
+        <Button variant="outline" onClick={openCreateDialog}>
           <Plus size={18} className="mr-2" />
-          Add Section
+          Manual Add
         </Button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Sections Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Sections ({sections.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Capacity</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sections.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
-                      No sections yet. Add your first section.
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  sections.map((section) => (
-                    <TableRow key={section.id}>
-                      <TableCell className="font-medium">{section.name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="capitalize">
-                          {section.section_type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{section.capacity}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button variant="ghost" size="icon" onClick={() => openEditDialog(section)}>
-                            <Edit size={16} />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => handleDelete(section.id)}>
-                            <Trash2 size={16} className="text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+      {/* Instructions */}
+      <Card className="bg-primary/5 border-primary/20">
+        <CardContent className="py-4">
+          <div className="flex items-center gap-4 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-muted-foreground/30 border border-border" />
+              <span className="text-muted-foreground">Unassigned</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-primary/60 border-2 border-primary" />
+              <span className="text-muted-foreground">Assigned</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <MousePointer size={16} className="text-primary" />
+              <span className="text-muted-foreground">Click any section to assign or edit</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Map Preview */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Map Preview</CardTitle>
-            <CardDescription>
-              Venue seating map (edit venue to update)
-            </CardDescription>
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* Map Preview - Takes 2 columns */}
+        <Card className="lg:col-span-2">
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle>Venue Map</CardTitle>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="icon" onClick={() => setZoom(z => Math.max(0.5, z - 0.25))}>
+                  <ZoomOut size={16} />
+                </Button>
+                <span className="text-sm text-muted-foreground w-12 text-center">{Math.round(zoom * 100)}%</span>
+                <Button variant="outline" size="icon" onClick={() => setZoom(z => Math.min(2, z + 0.25))}>
+                  <ZoomIn size={16} />
+                </Button>
+                <Button variant="outline" size="icon" onClick={() => setZoom(1)}>
+                  <RotateCcw size={16} />
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {venue?.svg_map ? (
-              <div 
-                className="w-full h-80 bg-secondary rounded-lg overflow-hidden p-4"
-                dangerouslySetInnerHTML={{ __html: venue.svg_map }}
-              />
+              <div className="relative">
+                {/* Hover tooltip */}
+                {hoveredElementId && (
+                  <div className="absolute top-2 left-2 z-10 bg-card border border-border rounded-lg p-3 shadow-lg">
+                    <p className="font-semibold text-foreground">
+                      {getHoveredSection()?.name || hoveredElementId}
+                    </p>
+                    {getHoveredSection() ? (
+                      <p className="text-sm text-muted-foreground">
+                        {getHoveredSection()?.section_type} • Capacity: {getHoveredSection()?.capacity}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-primary">Click to assign this section</p>
+                    )}
+                  </div>
+                )}
+                
+                <div 
+                  ref={mapContainerRef}
+                  className="w-full overflow-auto bg-secondary/50 rounded-lg p-4"
+                  style={{ 
+                    maxHeight: '500px',
+                    transform: `scale(${zoom})`,
+                    transformOrigin: 'top left',
+                  }}
+                >
+                  <div 
+                    className="[&>svg]:w-full [&>svg]:h-auto [&>svg]:max-w-none"
+                    dangerouslySetInnerHTML={{ __html: venue.svg_map }}
+                  />
+                </div>
+              </div>
             ) : (
-              <div className="w-full h-80 bg-secondary rounded-lg flex items-center justify-center text-muted-foreground">
-                No map uploaded
+              <div className="w-full h-80 bg-secondary rounded-lg flex flex-col items-center justify-center text-muted-foreground gap-2">
+                <p>No map uploaded</p>
+                <Button variant="outline" size="sm" onClick={() => navigate(`/admin/venues/${venueId}`)}>
+                  Upload SVG Map
+                </Button>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Sections List */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Sections ({sections.length})</CardTitle>
+            <CardDescription>Assigned venue sections</CardDescription>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="max-h-[450px] overflow-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sections.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-center text-muted-foreground py-8">
+                        Click on map sections to assign them
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    sections.map((section) => (
+                      <TableRow key={section.id} className="group">
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            {section.svg_path && (
+                              <Check size={14} className="text-success" />
+                            )}
+                            {section.name}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="capitalize text-xs">
+                            {section.section_type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditDialog(section)}>
+                              <Edit size={14} />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(section.id)}>
+                              <Trash2 size={14} className="text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -285,9 +509,14 @@ const SectionsManager = () => {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{editingSection ? 'Edit Section' : 'Add Section'}</DialogTitle>
+            <DialogTitle>
+              {editingSection ? 'Edit Section' : selectedElement ? 'Assign Section' : 'Add Section'}
+            </DialogTitle>
             <DialogDescription>
-              Configure section details and seating layout
+              {selectedElement 
+                ? `Assigning SVG element: ${selectedElement.id}`
+                : 'Configure section details and seating layout'
+              }
             </DialogDescription>
           </DialogHeader>
 
@@ -299,7 +528,7 @@ const SectionsManager = () => {
                   id="name"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g., 101, GA PIT"
+                  placeholder="e.g., Section 101, GA PIT"
                 />
               </div>
               <div className="space-y-2">
@@ -364,25 +593,20 @@ const SectionsManager = () => {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="svg_path">SVG Path (from venue map)</Label>
-              <Textarea
-                id="svg_path"
-                value={formData.svg_path}
-                onChange={(e) => setFormData({ ...formData, svg_path: e.target.value })}
-                placeholder="d=&quot;M 100 100 L 200 100...&quot;"
-                rows={3}
-                className="font-mono text-sm"
-              />
-            </div>
+            {formData.svg_path && (
+              <div className="p-3 bg-secondary rounded-lg">
+                <p className="text-sm font-medium text-foreground">Linked SVG Element</p>
+                <p className="text-xs text-muted-foreground font-mono">{formData.svg_path}</p>
+              </div>
+            )}
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+            <Button variant="outline" onClick={() => { setDialogOpen(false); setSelectedElement(null); }}>
               Cancel
             </Button>
             <Button onClick={handleSubmit} disabled={saving}>
-              {saving ? 'Saving...' : 'Save Section'}
+              {saving ? 'Saving...' : editingSection ? 'Update Section' : 'Assign Section'}
             </Button>
           </DialogFooter>
         </DialogContent>

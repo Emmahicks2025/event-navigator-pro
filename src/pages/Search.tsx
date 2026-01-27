@@ -1,26 +1,25 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search as SearchIcon } from 'lucide-react';
-import { allEvents } from '@/data/mockData';
+import { useSearchEvents } from '@/hooks/useEvents';
 import { EventCard } from '@/components/EventCard';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const Search = () => {
   const [searchParams] = useSearchParams();
   const initialQuery = searchParams.get('q') || '';
   const [query, setQuery] = useState(initialQuery);
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
 
-  const searchResults = useMemo(() => {
-    if (!query.trim()) return allEvents;
-
-    const lowerQuery = query.toLowerCase();
-    return allEvents.filter(
-      (event) =>
-        event.title.toLowerCase().includes(lowerQuery) ||
-        event.venue.toLowerCase().includes(lowerQuery) ||
-        event.city.toLowerCase().includes(lowerQuery) ||
-        event.category.toLowerCase().includes(lowerQuery)
-    );
+  // Debounce search query
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(query);
+    }, 300);
+    return () => clearTimeout(timer);
   }, [query]);
+
+  const { data: searchResults = [], isLoading } = useSearchEvents(debouncedQuery);
 
   return (
     <main className="pt-32 min-h-screen">
@@ -46,20 +45,32 @@ const Search = () => {
         {/* Results */}
         <div>
           <p className="text-muted-foreground mb-6">
-            {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} 
-            {query && ` for "${query}"`}
+            {isLoading ? 'Searching...' : (
+              <>
+                {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} 
+                {debouncedQuery && ` for "${debouncedQuery}"`}
+              </>
+            )}
           </p>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {searchResults.map((event) => (
-              <EventCard key={event.id} event={event} />
-            ))}
-          </div>
+          {isLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {[...Array(8)].map((_, i) => (
+                <Skeleton key={i} className="aspect-[4/3] rounded-lg" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {searchResults.map((event) => (
+                <EventCard key={event.id} event={event} />
+              ))}
+            </div>
+          )}
 
-          {searchResults.length === 0 && (
+          {!isLoading && searchResults.length === 0 && debouncedQuery && (
             <div className="text-center py-16">
               <p className="text-lg text-muted-foreground mb-4">
-                No events found for "{query}"
+                No events found for "{debouncedQuery}"
               </p>
               <p className="text-muted-foreground">
                 Try searching for something else or browse our categories

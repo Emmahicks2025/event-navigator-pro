@@ -1,35 +1,38 @@
 import { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { Filter, SortAsc } from 'lucide-react';
-import { allEvents, categories } from '@/data/mockData';
+import { useEventsByCategory } from '@/hooks/useEvents';
+import { useCategory } from '@/hooks/useCategories';
 import { EventCard } from '@/components/EventCard';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const Category = () => {
   const { slug } = useParams();
   const [sortBy, setSortBy] = useState<'date' | 'price'>('date');
   const [showFilters, setShowFilters] = useState(false);
 
-  const category = categories.find((c) => c.id === slug);
-  const categoryName = category?.name || slug?.charAt(0).toUpperCase() + slug?.slice(1);
+  const { data: category } = useCategory(slug);
+  const { data: events = [], isLoading } = useEventsByCategory(slug || '');
 
-  const filteredEvents = useMemo(() => {
-    let events = slug
-      ? allEvents.filter((e) => e.category === slug)
-      : allEvents;
+  const categoryName = category?.name || slug?.charAt(0).toUpperCase() + slug?.slice(1);
+  const categoryIcon = category?.icon || '🎫';
+
+  const sortedEvents = useMemo(() => {
+    let sorted = [...events];
 
     if (sortBy === 'price') {
-      events = [...events].sort((a, b) => a.priceFrom - b.priceFrom);
+      sorted = sorted.sort((a, b) => a.priceFrom - b.priceFrom);
     } else {
-      events = [...events].sort((a, b) => {
+      sorted = sorted.sort((a, b) => {
         if (a.date === 'TBD') return 1;
         if (b.date === 'TBD') return -1;
         return new Date(a.date).getTime() - new Date(b.date).getTime();
       });
     }
 
-    return events;
-  }, [slug, sortBy]);
+    return sorted;
+  }, [events, sortBy]);
 
   return (
     <main className="pt-32 min-h-screen">
@@ -38,10 +41,10 @@ const Category = () => {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <h1 className="text-3xl font-bold text-foreground">
-              {category?.icon} {categoryName}
+              {categoryIcon} {categoryName}
             </h1>
             <p className="text-muted-foreground mt-1">
-              {filteredEvents.length} events found
+              {isLoading ? 'Loading...' : `${sortedEvents.length} events found`}
             </p>
           </div>
 
@@ -112,13 +115,21 @@ const Category = () => {
         )}
 
         {/* Events Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {filteredEvents.map((event) => (
-            <EventCard key={event.id} event={event} />
-          ))}
-        </div>
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {[...Array(8)].map((_, i) => (
+              <Skeleton key={i} className="aspect-[4/3] rounded-lg" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {sortedEvents.map((event) => (
+              <EventCard key={event.id} event={event} />
+            ))}
+          </div>
+        )}
 
-        {filteredEvents.length === 0 && (
+        {!isLoading && sortedEvents.length === 0 && (
           <div className="text-center py-16">
             <p className="text-muted-foreground text-lg">No events found in this category</p>
           </div>
