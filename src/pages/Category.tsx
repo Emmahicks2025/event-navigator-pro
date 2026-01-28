@@ -1,13 +1,14 @@
 import { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { Filter, SortAsc, X } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/integrations/supabase/client';
 import { useEventsByCategory } from '@/hooks/useEvents';
 import { useCategory } from '@/hooks/useCategories';
 import { EventCard } from '@/components/EventCard';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
-
 // FIFA World Cup 2026 participating countries
 const FIFA_COUNTRIES = [
   'USA', 'Mexico', 'Canada', // Host nations
@@ -36,9 +37,32 @@ const Category = () => {
   const [sortBy, setSortBy] = useState<'date' | 'price'>('date');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
+  const [selectedCity, setSelectedCity] = useState<string>('');
 
   const { data: category } = useCategory(slug);
   const { data: events = [], isLoading } = useEventsByCategory(slug || '');
+
+  // Fetch unique cities from events
+  const { data: availableCities = [] } = useQuery({
+    queryKey: ['event-cities'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('events')
+        .select('venues!inner(city)')
+        .eq('is_active', true);
+      
+      if (error) throw error;
+      
+      const cities = new Set<string>();
+      data?.forEach((event: any) => {
+        if (event.venues?.city) {
+          cities.add(event.venues.city);
+        }
+      });
+      
+      return Array.from(cities).sort();
+    }
+  });
 
   const categoryName = category?.name || slug?.charAt(0).toUpperCase() + slug?.slice(1);
   const categoryIcon = category?.icon || '🎫';
@@ -80,6 +104,11 @@ const Category = () => {
       });
     }
 
+    // Filter by selected city
+    if (selectedCity) {
+      filtered = filtered.filter(event => event.city === selectedCity);
+    }
+
     // Sort
     if (sortBy === 'price') {
       filtered = filtered.sort((a, b) => a.priceFrom - b.priceFrom);
@@ -92,7 +121,7 @@ const Category = () => {
     }
 
     return filtered;
-  }, [events, sortBy, selectedCountries, isFifaWorldCup]);
+  }, [events, sortBy, selectedCountries, isFifaWorldCup, selectedCity]);
 
   return (
     <main className="pt-32 min-h-screen">
@@ -200,12 +229,15 @@ const Category = () => {
                 <label className="text-sm font-medium text-foreground mb-2 block">
                   Location
                 </label>
-                <select className="w-full bg-secondary border border-border rounded-lg p-2 text-foreground">
-                  <option>All Locations</option>
-                  <option>New York</option>
-                  <option>Los Angeles</option>
-                  <option>Chicago</option>
-                  <option>Washington DC</option>
+                <select 
+                  className="w-full bg-secondary border border-border rounded-lg p-2 text-foreground"
+                  value={selectedCity}
+                  onChange={(e) => setSelectedCity(e.target.value)}
+                >
+                  <option value="">All Locations</option>
+                  {availableCities.map((city) => (
+                    <option key={city} value={city}>{city}</option>
+                  ))}
                 </select>
               </div>
               <div className="flex items-end">
