@@ -49,6 +49,7 @@ import InventoryList from "./pages/admin/InventoryList";
 import InventoryForm from "./pages/admin/InventoryForm";
 import SellRequestsList from "./pages/admin/SellRequestsList";
 import BulkUpload from "./pages/admin/BulkUpload";
+import EventsImport from "./pages/admin/EventsImport";
 
 const queryClient = new QueryClient();
 
@@ -82,6 +83,7 @@ const App = () => (
                 <Route path="inventory/:id" element={<InventoryForm />} />
                 <Route path="sell-requests" element={<SellRequestsList />} />
                 <Route path="bulk-upload" element={<BulkUpload />} />
+                <Route path="import-events" element={<EventsImport />} />
               </Route>
 
               {/* Auth */}
