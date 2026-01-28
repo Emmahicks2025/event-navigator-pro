@@ -56,20 +56,40 @@ serve(async (req) => {
   }
 
   try {
-    const formData = await req.formData();
-    const zipFile = formData.get('zipFile') as File;
+    let zipBuffer: ArrayBuffer;
+    const contentType = req.headers.get('content-type') || '';
     
-    if (!zipFile) {
-      return new Response(
-        JSON.stringify({ error: "zipFile is required" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await req.formData();
+      const zipFile = formData.get('zipFile') as File;
+      
+      if (!zipFile) {
+        return new Response(
+          JSON.stringify({ error: "zipFile is required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      console.log(`Processing zip file: ${zipFile.name}, size: ${zipFile.size}`);
+      zipBuffer = await zipFile.arrayBuffer();
+    } else {
+      // JSON body with zipUrl
+      const body = await req.json();
+      if (!body.zipUrl) {
+        return new Response(
+          JSON.stringify({ error: "zipUrl or zipFile is required" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      console.log(`Fetching zip from URL: ${body.zipUrl}`);
+      const response = await fetch(body.zipUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch zip: ${response.statusText}`);
+      }
+      zipBuffer = await response.arrayBuffer();
     }
 
-    console.log(`Processing zip file: ${zipFile.name}, size: ${zipFile.size}`);
-
-    // Extract venue maps from zip
-    const zipBuffer = await zipFile.arrayBuffer();
+    console.log(`Zip buffer size: ${zipBuffer.byteLength}`);
+    
     const zip = new JSZip();
     await zip.loadAsync(zipBuffer);
     
