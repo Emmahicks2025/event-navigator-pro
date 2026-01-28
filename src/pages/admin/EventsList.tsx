@@ -191,7 +191,7 @@ const EventsList = () => {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between gap-4">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
@@ -200,6 +200,17 @@ const EventsList = () => {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="select-all-events"
+                checked={isAllSelected}
+                onCheckedChange={toggleAll}
+                aria-label="Select all events"
+              />
+              <label htmlFor="select-all-events" className="text-sm text-muted-foreground cursor-pointer">
+                Select All ({filteredEvents.length})
+              </label>
             </div>
           </div>
         </CardHeader>
