@@ -133,45 +133,45 @@ const Category = () => {
           </div>
         </div>
 
-        {/* Country Filter for FIFA World Cup */}
-        {isFifaWorldCup && availableCountries.length > 0 && (
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-medium text-foreground">Filter by Country</h3>
-              {selectedCountries.length > 0 && (
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={clearCountryFilters}
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  <X size={14} className="mr-1" />
-                  Clear filters
-                </Button>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {availableCountries.map((country) => (
-                <Badge
-                  key={country}
-                  variant={selectedCountries.includes(country) ? "default" : "outline"}
-                  className={`cursor-pointer transition-all hover:scale-105 ${
-                    selectedCountries.includes(country) 
-                      ? 'bg-primary text-primary-foreground' 
-                      : 'hover:bg-secondary'
-                  }`}
-                  onClick={() => toggleCountry(country)}
-                >
-                  {country}
-                </Badge>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* Filters Panel */}
         {showFilters && (
           <div className="bg-card rounded-xl border border-border p-6 mb-8 animate-slide-up">
+            {/* Country Filter for FIFA World Cup */}
+            {isFifaWorldCup && availableCountries.length > 0 && (
+              <div className="mb-6 pb-6 border-b border-border">
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-sm font-medium text-foreground">Filter by Country</label>
+                  {selectedCountries.length > 0 && (
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={clearCountryFilters}
+                      className="text-xs text-muted-foreground hover:text-foreground h-auto py-1"
+                    >
+                      <X size={14} className="mr-1" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {availableCountries.map((country) => (
+                    <Badge
+                      key={country}
+                      variant={selectedCountries.includes(country) ? "default" : "outline"}
+                      className={`cursor-pointer transition-all hover:scale-105 ${
+                        selectedCountries.includes(country) 
+                          ? 'bg-primary text-primary-foreground' 
+                          : 'hover:bg-secondary'
+                      }`}
+                      onClick={() => toggleCountry(country)}
+                    >
+                      {country}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <div>
                 <label className="text-sm font-medium text-foreground mb-2 block">
