@@ -50,12 +50,12 @@ export const PerformerUniverse = () => {
     if (performers.length === 0) return [];
     
     const rings = [
-      { radius: 18, count: 10, speed: 80, direction: 1, size: 36 },
-      { radius: 28, count: 14, speed: 100, direction: -1, size: 32 },
-      { radius: 40, count: 18, speed: 130, direction: 1, size: 28 },
-      { radius: 52, count: 22, speed: 160, direction: -1, size: 24 },
-      { radius: 65, count: 26, speed: 200, direction: 1, size: 22 },
-      { radius: 80, count: 30, speed: 240, direction: -1, size: 20 },
+      { radius: 20, count: 10, speed: 80, direction: 1, size: 72 },
+      { radius: 32, count: 14, speed: 100, direction: -1, size: 64 },
+      { radius: 46, count: 18, speed: 130, direction: 1, size: 56 },
+      { radius: 60, count: 22, speed: 160, direction: -1, size: 48 },
+      { radius: 76, count: 26, speed: 200, direction: 1, size: 44 },
+      { radius: 94, count: 30, speed: 240, direction: -1, size: 40 },
     ];
 
     let performerIndex = 0;
