@@ -210,8 +210,8 @@ export const Hero = () => {
 
       {/* Content */}
       <div className="relative z-10 container mx-auto px-4 text-center">
-        <h1 className="text-5xl md:text-7xl font-bold mb-6 glow-text animate-fade-in">
-          Go See It Live
+        <h1 className="text-5xl md:text-7xl font-bold mb-4 glow-text animate-fade-in">
+          Your Universe of Live Events
         </h1>
 
         {/* Search Bar with Autocomplete */}

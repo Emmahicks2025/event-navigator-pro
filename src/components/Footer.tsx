@@ -36,12 +36,12 @@ export const Footer = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8">
           {/* Brand Column */}
           <div className="lg:col-span-2">
-            <Link to="/" className="flex items-center gap-2 mb-4">
-              <span className="text-2xl font-bold text-primary">GO</span>
-              <span className="text-2xl font-bold text-foreground">TICKETS</span>
+            <Link to="/" className="flex items-center gap-1 mb-4">
+              <span className="text-2xl font-bold text-primary">Tix</span>
+              <span className="text-2xl font-bold text-foreground">Orbit</span>
             </Link>
             <p className="text-muted-foreground mb-6 max-w-sm">
-              Your trusted destination for tickets to concerts, sports, theater, and more. 
+              Your universe of live events. The trusted destination for tickets to concerts, sports, theater, and more. 
               Secure marketplace with buyer protection.
             </p>
             <div className="flex items-center gap-4 mb-6">
@@ -111,9 +111,9 @@ export const Footer = () => {
         {/* Contact Row */}
         <div className="mt-12 pt-8 border-t border-border flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-6 text-sm text-muted-foreground">
-            <a href="mailto:support@gotickets.com" className="flex items-center gap-2 hover:text-primary transition-colors">
+            <a href="mailto:support@tixorbit.com" className="flex items-center gap-2 hover:text-primary transition-colors">
               <Mail size={16} />
-              support@gotickets.com
+              support@tixorbit.com
             </a>
             <a href="tel:1-800-555-0123" className="flex items-center gap-2 hover:text-primary transition-colors">
               <Phone size={16} />
@@ -121,7 +121,7 @@ export const Footer = () => {
             </a>
           </div>
           <p className="text-sm text-muted-foreground">
-            © {new Date().getFullYear()} GoTickets. All rights reserved.
+            © {new Date().getFullYear()} TixOrbit. All rights reserved.
           </p>
         </div>
       </div>
