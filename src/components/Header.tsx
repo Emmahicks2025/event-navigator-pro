@@ -6,6 +6,7 @@ import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/hooks/useAuth';
 
 const navLinks = [
+  { name: 'FIFA World Cup 2026', href: '/category/fifa-world-cup-2026', highlight: true },
   { name: 'Sports', href: '/category/sports' },
   { name: 'Concert', href: '/category/concerts' },
   { name: 'Theater', href: '/category/theater' },
@@ -38,13 +39,18 @@ export const Header = () => {
           </Link>
 
           {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-8">
+          <nav className="hidden md:flex items-center gap-6">
             {navLinks.map((link) => (
               <Link
                 key={link.name}
                 to={link.href}
-                className={`nav-link ${location.pathname === link.href ? 'nav-link-active' : ''}`}
+                className={`nav-link ${location.pathname === link.href ? 'nav-link-active' : ''} ${
+                  link.highlight 
+                    ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white px-3 py-1.5 rounded-full font-semibold text-sm hover:from-green-600 hover:to-emerald-700 transition-all shadow-md' 
+                    : ''
+                }`}
               >
+                {link.highlight && '⚽ '}
                 {link.name}
               </Link>
             ))}
@@ -117,9 +123,14 @@ export const Header = () => {
               <Link
                 key={link.name}
                 to={link.href}
-                className="nav-link text-lg py-2"
+                className={`nav-link text-lg py-2 ${
+                  link.highlight 
+                    ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white px-4 py-2 rounded-full font-semibold inline-flex items-center gap-2' 
+                    : ''
+                }`}
                 onClick={() => setIsMenuOpen(false)}
               >
+                {link.highlight && '⚽ '}
                 {link.name}
               </Link>
             ))}
