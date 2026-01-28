@@ -33,9 +33,9 @@ export const Header = () => {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2">
-            <span className="text-2xl font-bold text-primary">GO</span>
-            <span className="text-2xl font-bold text-foreground">TICKETS</span>
+          <Link to="/" className="flex items-center gap-1">
+            <span className="text-2xl font-bold text-primary">Tix</span>
+            <span className="text-2xl font-bold text-foreground">Orbit</span>
           </Link>
 
           {/* Desktop Navigation */}

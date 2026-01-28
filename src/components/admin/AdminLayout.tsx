@@ -91,9 +91,9 @@ const AdminLayout = () => {
         <div className="flex flex-col h-full">
           {/* Logo */}
           <div className="flex items-center justify-between h-16 px-4 border-b border-border">
-            <div className="flex items-center gap-2">
-              <span className="text-xl font-bold text-primary">GO</span>
-              <span className="text-xl font-bold text-foreground">ADMIN</span>
+            <div className="flex items-center gap-1">
+              <span className="text-xl font-bold text-primary">Tix</span>
+              <span className="text-xl font-bold text-foreground">Admin</span>
             </div>
             <button 
               className="lg:hidden text-muted-foreground hover:text-foreground"
