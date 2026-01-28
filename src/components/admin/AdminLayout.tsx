@@ -30,6 +30,7 @@ const navItems = [
   { path: '/admin/categories', label: 'Categories', icon: BarChart3 },
   { path: '/admin/inventory', label: 'Inventory', icon: Package },
   { path: '/admin/bulk-upload', label: 'Bulk Upload', icon: Upload },
+  { path: '/admin/import-events', label: 'Import Events', icon: Upload },
   { path: '/admin/orders', label: 'Orders', icon: Ticket },
   { path: '/admin/sell-requests', label: 'Sell Requests', icon: HandCoins },
   { path: '/admin/featured', label: 'Featured', icon: Star },
