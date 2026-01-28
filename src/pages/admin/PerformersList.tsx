@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, Edit, Trash2, Music, Users } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Music } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Table,
   TableBody,
@@ -24,17 +25,32 @@ import {
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { useAdminPerformers, useDeletePerformer } from '@/hooks/usePerformers';
+import { useBulkSelection } from '@/hooks/useBulkSelection';
+import { supabase } from '@/integrations/supabase/client';
 
 const PerformersList = () => {
   const [search, setSearch] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   
-  const { data: performers = [], isLoading } = useAdminPerformers();
+  const { data: performers = [], isLoading, refetch } = useAdminPerformers();
   const deletePerformer = useDeletePerformer();
 
   const filteredPerformers = performers.filter((p: any) =>
     p.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  const {
+    selectedCount,
+    isSelected,
+    isAllSelected,
+    isPartiallySelected,
+    toggleItem,
+    toggleAll,
+    clearSelection,
+    selectedIds,
+  } = useBulkSelection(filteredPerformers);
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -45,6 +61,28 @@ const PerformersList = () => {
       setDeleteId(null);
     } catch (error: any) {
       toast.error(error.message || 'Failed to delete performer');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const { error } = await supabase
+        .from('performers')
+        .delete()
+        .in('id', ids);
+
+      if (error) throw error;
+      
+      toast.success(`${ids.length} performer(s) deleted successfully`);
+      clearSelection();
+      refetch();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete performers');
+    } finally {
+      setBulkDeleting(false);
+      setShowBulkDeleteDialog(false);
     }
   };
 
@@ -64,6 +102,26 @@ const PerformersList = () => {
         </Button>
       </div>
 
+      {/* Bulk Actions Bar */}
+      {selectedCount > 0 && (
+        <div className="flex items-center gap-4 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+          <span className="text-sm font-medium">
+            {selectedCount} item{selectedCount > 1 ? 's' : ''} selected
+          </span>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setShowBulkDeleteDialog(true)}
+          >
+            <Trash2 size={14} className="mr-2" />
+            Delete Selected
+          </Button>
+          <Button variant="ghost" size="sm" onClick={clearSelection}>
+            Clear Selection
+          </Button>
+        </div>
+      )}
+
       {/* Search */}
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
@@ -80,6 +138,14 @@ const PerformersList = () => {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-12">
+                <Checkbox
+                  checked={isAllSelected}
+                  onCheckedChange={toggleAll}
+                  aria-label="Select all"
+                  className={isPartiallySelected ? 'opacity-50' : ''}
+                />
+              </TableHead>
               <TableHead className="w-16">Image</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Category</TableHead>
@@ -91,6 +157,7 @@ const PerformersList = () => {
             {isLoading ? (
               [...Array(5)].map((_, i) => (
                 <TableRow key={i}>
+                  <TableCell><Skeleton className="w-4 h-4" /></TableCell>
                   <TableCell><Skeleton className="w-10 h-10 rounded-full" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-32" /></TableCell>
                   <TableCell><Skeleton className="h-4 w-20" /></TableCell>
@@ -100,13 +167,20 @@ const PerformersList = () => {
               ))
             ) : filteredPerformers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                   {search ? 'No performers found matching your search' : 'No performers yet. Add your first performer!'}
                 </TableCell>
               </TableRow>
             ) : (
               filteredPerformers.map((performer: any) => (
-                <TableRow key={performer.id}>
+                <TableRow key={performer.id} className={isSelected(performer.id) ? 'bg-primary/5' : ''}>
+                  <TableCell>
+                    <Checkbox
+                      checked={isSelected(performer.id)}
+                      onCheckedChange={() => toggleItem(performer.id)}
+                      aria-label={`Select ${performer.name}`}
+                    />
+                  </TableCell>
                   <TableCell>
                     {performer.image_url ? (
                       <img
@@ -150,7 +224,7 @@ const PerformersList = () => {
         </Table>
       </div>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Single Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -163,6 +237,29 @@ const PerformersList = () => {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedCount} Performer{selectedCount > 1 ? 's' : ''}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedCount} selected performer{selectedCount > 1 ? 's' : ''}? 
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleBulkDelete} 
+              className="bg-destructive text-destructive-foreground"
+              disabled={bulkDeleting}
+            >
+              {bulkDeleting ? 'Deleting...' : 'Delete All'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
