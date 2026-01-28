@@ -4,7 +4,7 @@ import { EventWithRelations, transformDbEventToEvent } from '@/types/database';
 import { Event } from '@/types/event';
 
 // Fetch all active events with relations
-export function useEvents(options?: { category?: string; limit?: number; featured?: boolean }) {
+export function useEvents(options?: { category?: string; limit?: number; featured?: boolean; homepageSection?: string }) {
   return useQuery({
     queryKey: ['events', options],
     queryFn: async (): Promise<Event[]> => {
@@ -21,6 +21,10 @@ export function useEvents(options?: { category?: string; limit?: number; feature
 
       if (options?.featured) {
         query = query.eq('is_featured', true).order('display_order', { ascending: true });
+      }
+
+      if (options?.homepageSection) {
+        query = query.contains('homepage_sections', [options.homepageSection]);
       }
 
       if (options?.limit) {
@@ -42,9 +46,14 @@ export function useEvents(options?: { category?: string; limit?: number; feature
   });
 }
 
-// Fetch featured events
+// Fetch events for specific homepage section
+export function useHomepageSectionEvents(section: 'top_events' | 'concerts' | 'sports', limit = 10) {
+  return useEvents({ homepageSection: section, limit });
+}
+
+// Fetch featured events (top events section)
 export function useFeaturedEvents(limit = 10) {
-  return useEvents({ featured: true, limit });
+  return useHomepageSectionEvents('top_events', limit);
 }
 
 // Fetch events by category

@@ -3,17 +3,15 @@ import { EventsCarousel } from '@/components/EventsCarousel';
 import { PerformersSection } from '@/components/PerformersSection';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Shield, Clock, CreditCard } from 'lucide-react';
-import { useFeaturedEvents, useEvents } from '@/hooks/useEvents';
+import { useFeaturedEvents, useHomepageSectionEvents } from '@/hooks/useEvents';
 import { useCategories } from '@/hooks/useCategories';
 import { Skeleton } from '@/components/ui/skeleton';
 
 const Index = () => {
   const { data: featuredEvents = [], isLoading: loadingFeatured } = useFeaturedEvents();
-  const { data: allEvents = [], isLoading: loadingEvents } = useEvents();
+  const { data: concertEvents = [], isLoading: loadingConcerts } = useHomepageSectionEvents('concerts');
+  const { data: sportsEvents = [], isLoading: loadingSports } = useHomepageSectionEvents('sports');
   const { data: categories = [], isLoading: loadingCategories } = useCategories();
-
-  const concertEvents = allEvents.filter((e) => e.category === 'concerts');
-  const sportsEvents = allEvents.filter((e) => e.category === 'sports');
 
   return (
     <main className="pt-24">
@@ -76,7 +74,7 @@ const Index = () => {
       <PerformersSection />
 
       {/* Concert Events */}
-      {loadingEvents ? (
+      {loadingConcerts ? (
         <section className="py-12">
           <div className="container mx-auto px-4">
             <Skeleton className="h-8 w-48 mb-6" />
@@ -96,13 +94,24 @@ const Index = () => {
       ) : null}
 
       {/* Sports Events */}
-      {!loadingEvents && sportsEvents.length > 0 && (
+      {loadingSports ? (
+        <section className="py-12">
+          <div className="container mx-auto px-4">
+            <Skeleton className="h-8 w-48 mb-6" />
+            <div className="flex gap-6 overflow-hidden">
+              {[...Array(4)].map((_, i) => (
+                <Skeleton key={i} className="w-80 h-64 flex-shrink-0 rounded-lg" />
+              ))}
+            </div>
+          </div>
+        </section>
+      ) : sportsEvents.length > 0 ? (
         <EventsCarousel
           events={sportsEvents}
           title="Sports Events"
           subtitle="Experience the thrill of live sports"
         />
-      )}
+      ) : null}
 
       {/* Trust Badges */}
       <section className="py-16 bg-card/50 border-y border-border">

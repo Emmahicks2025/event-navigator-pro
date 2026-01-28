@@ -104,6 +104,7 @@ export type Database = {
           doors_open_time: string | null
           event_date: string
           event_time: string | null
+          homepage_sections: string[] | null
           id: string
           image_url: string | null
           is_active: boolean | null
@@ -123,6 +124,7 @@ export type Database = {
           doors_open_time?: string | null
           event_date: string
           event_time?: string | null
+          homepage_sections?: string[] | null
           id?: string
           image_url?: string | null
           is_active?: boolean | null
@@ -142,6 +144,7 @@ export type Database = {
           doors_open_time?: string | null
           event_date?: string
           event_time?: string | null
+          homepage_sections?: string[] | null
           id?: string
           image_url?: string | null
           is_active?: boolean | null
