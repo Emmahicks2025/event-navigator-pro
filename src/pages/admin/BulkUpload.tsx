@@ -69,6 +69,18 @@ const BulkUpload = () => {
   const [svgProgress, setSvgProgress] = useState(0);
   const [createNewVenues, setCreateNewVenues] = useState(false);
   
+  // ZIP Upload State
+  const [zipFile, setZipFile] = useState<File | null>(null);
+  const [zipUploading, setZipUploading] = useState(false);
+  const [zipResults, setZipResults] = useState<{
+    totalMaps: number;
+    matched: number;
+    updated: number;
+    skipped: number;
+    unmatched: string[];
+    matches: { fileName: string; venueName: string }[];
+  } | null>(null);
+  
   // Quick Seed State
   const [seeding, setSeeding] = useState(false);
   const [seedResults, setSeedResults] = useState<{ venues: { created: number; existing: number }; performers: { created: number; existing: number }; events: { created: number; existing: number } } | null>(null);
@@ -506,6 +518,53 @@ const BulkUpload = () => {
     }
   };
 
+  // Handle ZIP file selection
+  const handleZipSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.zip')) {
+      toast.error('Please upload a ZIP file');
+      return;
+    }
+
+    setZipFile(file);
+    setZipResults(null);
+    toast.success(`Selected: ${file.name}`);
+  }, []);
+
+  // Upload ZIP file with venue maps
+  const uploadZipFile = async () => {
+    if (!zipFile) {
+      toast.error('No ZIP file selected');
+      return;
+    }
+
+    setZipUploading(true);
+    setZipResults(null);
+
+    try {
+      const formData = new FormData();
+      formData.append('zipFile', zipFile);
+
+      const { data, error } = await supabase.functions.invoke('process-venue-maps', {
+        body: formData,
+      });
+
+      if (error) throw error;
+
+      if (data?.results) {
+        setZipResults(data.results);
+        toast.success(`Processed ${data.results.matched} maps, updated ${data.results.updated} venues`);
+      }
+    } catch (err: any) {
+      console.error('Error processing ZIP:', err);
+      toast.error(err.message || 'Failed to process ZIP file');
+    } finally {
+      setZipUploading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -566,7 +625,7 @@ const BulkUpload = () => {
       </Card>
 
       <Tabs defaultValue="events" className="space-y-6">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className="grid w-full max-w-lg grid-cols-3">
           <TabsTrigger value="events" className="flex items-center gap-2">
             <FileSpreadsheet size={16} />
             Events (Excel)
@@ -574,6 +633,10 @@ const BulkUpload = () => {
           <TabsTrigger value="venues" className="flex items-center gap-2">
             <MapPin size={16} />
             Venue Maps (SVG)
+          </TabsTrigger>
+          <TabsTrigger value="zip" className="flex items-center gap-2">
+            <FileText size={16} />
+            Maps (ZIP)
           </TabsTrigger>
         </TabsList>
 
@@ -927,6 +990,119 @@ const BulkUpload = () => {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* ZIP Venue Maps Upload */}
+        <TabsContent value="zip" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText size={20} />
+                Upload ZIP with Venue Maps
+              </CardTitle>
+              <CardDescription>
+                Upload a ZIP file containing SVG/TXT map files. Files will be matched to existing venues by filename.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="zip-file">Select ZIP File</Label>
+                <Input
+                  id="zip-file"
+                  type="file"
+                  accept=".zip"
+                  onChange={handleZipSelect}
+                />
+              </div>
+
+              {zipFile && (
+                <div className="flex items-center gap-2 p-3 bg-secondary rounded-lg">
+                  <FileText size={20} className="text-primary" />
+                  <div className="flex-1">
+                    <p className="font-medium">{zipFile.name}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {(zipFile.size / 1024).toFixed(1)} KB
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <Button 
+                onClick={uploadZipFile} 
+                disabled={zipUploading || !zipFile}
+                className="w-full"
+              >
+                {zipUploading ? (
+                  <>
+                    <Loader2 className="animate-spin mr-2" size={18} />
+                    Processing ZIP...
+                  </>
+                ) : (
+                  <>
+                    <Upload size={18} className="mr-2" />
+                    Process Venue Maps
+                  </>
+                )}
+              </Button>
+
+              {zipResults && (
+                <div className="space-y-4 mt-4">
+                  <div className="grid grid-cols-4 gap-4 p-4 bg-secondary rounded-lg">
+                    <div className="text-center">
+                      <p className="text-2xl font-bold">{zipResults.totalMaps}</p>
+                      <p className="text-sm text-muted-foreground">Maps Found</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-green-600">{zipResults.matched}</p>
+                      <p className="text-sm text-muted-foreground">Matched</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-primary">{zipResults.updated}</p>
+                      <p className="text-sm text-muted-foreground">Updated</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-yellow-600">{zipResults.skipped}</p>
+                      <p className="text-sm text-muted-foreground">Skipped</p>
+                    </div>
+                  </div>
+
+                  {zipResults.matches.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="font-medium">Matched Maps:</p>
+                      <ScrollArea className="h-[200px]">
+                        <div className="space-y-1">
+                          {zipResults.matches.map((match, i) => (
+                            <div key={i} className="flex items-center gap-2 p-2 bg-green-500/10 rounded text-sm">
+                              <CheckCircle2 size={14} className="text-green-600" />
+                              <span className="text-muted-foreground">{match.fileName}</span>
+                              <span>→</span>
+                              <span className="font-medium">{match.venueName}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  )}
+
+                  {zipResults.unmatched.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="font-medium text-yellow-600">Unmatched Files ({zipResults.unmatched.length}):</p>
+                      <ScrollArea className="h-[150px]">
+                        <div className="space-y-1">
+                          {zipResults.unmatched.map((file, i) => (
+                            <div key={i} className="flex items-center gap-2 p-2 bg-yellow-500/10 rounded text-sm">
+                              <AlertCircle size={14} className="text-yellow-600" />
+                              <span>{file}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
