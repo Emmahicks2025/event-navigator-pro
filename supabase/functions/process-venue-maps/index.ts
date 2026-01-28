@@ -93,16 +93,40 @@ serve(async (req) => {
     const zip = new JSZip();
     await zip.loadAsync(zipBuffer);
     
+    // Access files through the files() method and cast
+    const filesMap = zip.files() as Record<string, any>;
+    const allFileNames = Object.keys(filesMap);
+    
+    console.log(`Total files in zip: ${allFileNames.length}`);
+    console.log(`Sample file names: ${allFileNames.slice(0, 15).join(', ')}`);
+    
     const venueMapFiles = new Map<string, string>();
     
-    for (const [fileName, file] of Object.entries(zip.files)) {
-      if (!file.dir && (fileName.endsWith('.txt') || fileName.endsWith('.svg'))) {
-        const content = await file.async('string');
-        if (content.includes('<svg') || content.includes('<path') || content.includes('<g')) {
-          const baseName = fileName.split('/').pop() || fileName;
-          venueMapFiles.set(baseName, content);
-          console.log(`Found SVG map: ${baseName} (${content.length} chars)`);
+    // Process files
+    for (const fileName of allFileNames) {
+      const file = filesMap[fileName];
+      
+      if (file.dir) continue;
+      
+      const lowerName = fileName.toLowerCase();
+      const isTextFile = lowerName.endsWith('.txt') || lowerName.endsWith('.svg') || lowerName.endsWith('.xml');
+      
+      if (isTextFile) {
+        try {
+          const content = await file.async('string');
+          // Check for SVG content markers
+          if (content.includes('<svg') || content.includes('<path') || content.includes('<g ') || content.includes('viewBox')) {
+            const baseName = fileName.split('/').pop() || fileName;
+            venueMapFiles.set(baseName, content);
+            console.log(`Found SVG map: ${baseName} (${content.length} chars)`);
+          } else {
+            console.log(`File ${fileName} no SVG (first 50 chars: ${content.substring(0, 50).replace(/\n/g, ' ')})`);
+          }
+        } catch (e) {
+          console.error(`Error reading ${fileName}: ${e}`);
         }
+      } else {
+        console.log(`Skipping non-text file: ${fileName}`);
       }
     }
 
