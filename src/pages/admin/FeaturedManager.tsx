@@ -131,22 +131,39 @@ const FeaturedManager = () => {
   };
 
   const getEventsForSection = (sectionId: string) => {
-    return events
+    let sectionEvts = events
       .filter(e => e.homepage_sections?.includes(sectionId))
       .sort((a, b) => (a.display_order || 0) - (b.display_order || 0));
+    
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      sectionEvts = sectionEvts.filter(e => 
+        e.title.toLowerCase().includes(query) ||
+        e.venues?.name?.toLowerCase().includes(query) ||
+        e.categories?.name?.toLowerCase().includes(query)
+      );
+    }
+    
+    return sectionEvts;
   };
 
   const getAvailableEvents = (sectionId: string) => {
-    const available = events.filter(e => !e.homepage_sections?.includes(sectionId));
+    let available = events.filter(e => !e.homepage_sections?.includes(sectionId));
     
-    if (!searchQuery.trim()) return available;
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      available = available.filter(e => 
+        e.title.toLowerCase().includes(query) ||
+        e.venues?.name?.toLowerCase().includes(query) ||
+        e.categories?.name?.toLowerCase().includes(query)
+      );
+    }
     
-    const query = searchQuery.toLowerCase();
-    return available.filter(e => 
-      e.title.toLowerCase().includes(query) ||
-      e.venues?.name?.toLowerCase().includes(query) ||
-      e.categories?.name?.toLowerCase().includes(query)
-    );
+    return available;
+  };
+
+  const totalInSection = (sectionId: string) => {
+    return events.filter(e => e.homepage_sections?.includes(sectionId)).length;
   };
 
   if (loading) {
@@ -159,16 +176,27 @@ const FeaturedManager = () => {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold text-foreground">Homepage Sections Manager</h2>
-        <p className="text-muted-foreground">Control which events appear in each homepage section</p>
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-foreground">Homepage Sections Manager</h2>
+          <p className="text-muted-foreground">Control which events appear in each homepage section</p>
+        </div>
+        <div className="relative w-full md:w-80">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Search events..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9"
+          />
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-3">
           {HOMEPAGE_SECTIONS.map((section) => {
             const Icon = section.icon;
-            const count = getEventsForSection(section.id).length;
+            const count = totalInSection(section.id);
             return (
               <TabsTrigger key={section.id} value={section.id} className="flex items-center gap-2">
                 <Icon className="h-4 w-4" />
@@ -262,17 +290,8 @@ const FeaturedManager = () => {
                 <CardHeader>
                   <CardTitle>Add Events to {section.label}</CardTitle>
                   <CardDescription>
-                    Search and toggle to add events to this section
+                    Toggle to add events to this section
                   </CardDescription>
-                  <div className="relative mt-2">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      placeholder="Search events by title, venue, or category..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="pl-9"
-                    />
-                  </div>
                 </CardHeader>
                 <CardContent>
                   <Table>
