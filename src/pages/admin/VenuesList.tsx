@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import { Plus, Search, Edit, Trash2, Map } from 'lucide-react';
 import {
@@ -17,6 +18,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { useBulkSelection } from '@/hooks/useBulkSelection';
 
 interface Venue {
   id: string;
@@ -33,6 +35,8 @@ const VenuesList = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   useEffect(() => {
     fetchVenues();
@@ -55,6 +59,22 @@ const VenuesList = () => {
     }
   };
 
+  const filteredVenues = venues.filter(venue =>
+    venue.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    venue.city.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const {
+    selectedCount,
+    isSelected,
+    isAllSelected,
+    isPartiallySelected,
+    toggleItem,
+    toggleAll,
+    clearSelection,
+    selectedIds,
+  } = useBulkSelection(filteredVenues);
+
   const handleDelete = async () => {
     if (!deleteId) return;
     
@@ -75,10 +95,27 @@ const VenuesList = () => {
     }
   };
 
-  const filteredVenues = venues.filter(venue =>
-    venue.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    venue.city.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const { error } = await supabase
+        .from('venues')
+        .delete()
+        .in('id', ids);
+
+      if (error) throw error;
+      
+      setVenues(venues.filter(v => !selectedIds.has(v.id)));
+      toast.success(`${ids.length} venue(s) deleted successfully`);
+      clearSelection();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to delete venues');
+    } finally {
+      setBulkDeleting(false);
+      setShowBulkDeleteDialog(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -101,6 +138,26 @@ const VenuesList = () => {
         </Button>
       </div>
 
+      {/* Bulk Actions Bar */}
+      {selectedCount > 0 && (
+        <div className="flex items-center gap-4 p-3 bg-primary/10 border border-primary/20 rounded-lg">
+          <span className="text-sm font-medium">
+            {selectedCount} item{selectedCount > 1 ? 's' : ''} selected
+          </span>
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setShowBulkDeleteDialog(true)}
+          >
+            <Trash2 size={14} className="mr-2" />
+            Delete Selected
+          </Button>
+          <Button variant="ghost" size="sm" onClick={clearSelection}>
+            Clear Selection
+          </Button>
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <div className="flex items-center gap-4">
@@ -119,6 +176,14 @@ const VenuesList = () => {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-12">
+                  <Checkbox
+                    checked={isAllSelected}
+                    onCheckedChange={toggleAll}
+                    aria-label="Select all"
+                    className={isPartiallySelected ? 'opacity-50' : ''}
+                  />
+                </TableHead>
                 <TableHead>Venue</TableHead>
                 <TableHead>Location</TableHead>
                 <TableHead>Capacity</TableHead>
@@ -129,13 +194,20 @@ const VenuesList = () => {
             <TableBody>
               {filteredVenues.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
                     No venues found
                   </TableCell>
                 </TableRow>
               ) : (
                 filteredVenues.map((venue) => (
-                  <TableRow key={venue.id}>
+                  <TableRow key={venue.id} className={isSelected(venue.id) ? 'bg-primary/5' : ''}>
+                    <TableCell>
+                      <Checkbox
+                        checked={isSelected(venue.id)}
+                        onCheckedChange={() => toggleItem(venue.id)}
+                        aria-label={`Select ${venue.name}`}
+                      />
+                    </TableCell>
                     <TableCell className="font-medium">{venue.name}</TableCell>
                     <TableCell>{venue.city}{venue.state ? `, ${venue.state}` : ''}</TableCell>
                     <TableCell>{venue.capacity?.toLocaleString() || 'N/A'}</TableCell>
@@ -182,6 +254,7 @@ const VenuesList = () => {
         </CardContent>
       </Card>
 
+      {/* Single Delete Dialog */}
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -194,6 +267,29 @@ const VenuesList = () => {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground">
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Dialog */}
+      <AlertDialog open={showBulkDeleteDialog} onOpenChange={setShowBulkDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedCount} Venue{selectedCount > 1 ? 's' : ''}</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete {selectedCount} selected venue{selectedCount > 1 ? 's' : ''}? 
+              This will also delete all associated sections and seats. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleBulkDelete} 
+              className="bg-destructive text-destructive-foreground"
+              disabled={bulkDeleting}
+            >
+              {bulkDeleting ? 'Deleting...' : 'Delete All'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
