@@ -5,7 +5,6 @@ import heroImage from '@/assets/hero-stadium.jpg';
 import { cities } from '@/data/mockData';
 import { supabase } from '@/integrations/supabase/client';
 import { cn } from '@/lib/utils';
-import { PerformerUniverse } from './PerformerUniverse';
 
 interface SearchResult {
   id: string;
@@ -197,7 +196,7 @@ export const Hero = () => {
   const typeOrder: SearchResult['type'][] = ['performer', 'event', 'venue'];
 
   return (
-    <section className="relative min-h-[80vh] flex items-center justify-center overflow-hidden">
+    <section className="relative min-h-[70vh] flex items-center justify-center overflow-hidden">
       {/* Background Image */}
       <div className="absolute inset-0">
         <img
@@ -205,12 +204,9 @@ export const Hero = () => {
           alt="Stadium"
           className="w-full h-full object-cover"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-background/40 via-background/70 to-background" />
+        <div className="absolute inset-0 bg-gradient-to-b from-background/30 via-background/60 to-background" />
         <div className="absolute inset-0 bg-hero-pattern" />
       </div>
-
-      {/* Performer Universe Animation */}
-      <PerformerUniverse />
 
       {/* Content */}
       <div className="relative z-10 container mx-auto px-4 text-center">
