@@ -1,13 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { Star, ArrowUp, ArrowDown, Music, Trophy, Sparkles } from 'lucide-react';
+import { Star, ArrowUp, ArrowDown, Music, Trophy, Search } from 'lucide-react';
 
 interface FeaturedEvent {
   id: string;
@@ -30,6 +30,7 @@ const FeaturedManager = () => {
   const [events, setEvents] = useState<FeaturedEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('top_events');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     fetchEvents();
@@ -136,7 +137,16 @@ const FeaturedManager = () => {
   };
 
   const getAvailableEvents = (sectionId: string) => {
-    return events.filter(e => !e.homepage_sections?.includes(sectionId));
+    const available = events.filter(e => !e.homepage_sections?.includes(sectionId));
+    
+    if (!searchQuery.trim()) return available;
+    
+    const query = searchQuery.toLowerCase();
+    return available.filter(e => 
+      e.title.toLowerCase().includes(query) ||
+      e.venues?.name?.toLowerCase().includes(query) ||
+      e.categories?.name?.toLowerCase().includes(query)
+    );
   };
 
   if (loading) {
@@ -252,8 +262,17 @@ const FeaturedManager = () => {
                 <CardHeader>
                   <CardTitle>Add Events to {section.label}</CardTitle>
                   <CardDescription>
-                    Toggle to add events to this section
+                    Search and toggle to add events to this section
                   </CardDescription>
+                  <div className="relative mt-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search events by title, venue, or category..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9"
+                    />
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <Table>
