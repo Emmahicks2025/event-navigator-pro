@@ -122,15 +122,28 @@ const PerformersList = () => {
         </div>
       )}
 
-      {/* Search */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-        <Input
-          placeholder="Search performers..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="pl-10"
-        />
+      {/* Search & Select All */}
+      <div className="flex items-center justify-between gap-4">
+        <div className="relative max-w-md flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
+          <Input
+            placeholder="Search performers..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="select-all-performers"
+            checked={isAllSelected}
+            onCheckedChange={toggleAll}
+            aria-label="Select all performers"
+          />
+          <label htmlFor="select-all-performers" className="text-sm text-muted-foreground cursor-pointer">
+            Select All ({filteredPerformers.length})
+          </label>
+        </div>
       </div>
 
       {/* Table */}
