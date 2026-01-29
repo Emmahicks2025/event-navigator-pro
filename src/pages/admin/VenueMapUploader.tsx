@@ -150,19 +150,6 @@ export default function VenueMapUploader() {
           
           if (matchedVenue) {
             stats.matched++;
-            
-            // Check if venue already has a map
-            const existingVenue = venues?.find(v => v.id === matchedVenue.id);
-            if (existingVenue?.svg_map) {
-              stats.skipped++;
-              processResults.push({
-                fileName: baseName,
-                venueName: matchedVenue.name,
-                status: 'skipped',
-                message: 'Venue already has a map'
-              });
-              continue;
-            }
 
             // Upload SVG to storage
             const safeName = matchedVenue.name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
@@ -328,19 +315,11 @@ export default function VenueMapUploader() {
             <div className="flex gap-2">
               <Button
                 variant="outline"
-                onClick={() => loadFromPublicFile('scraped_maps.zip')}
+                onClick={() => loadFromPublicFile('fixed_maps.zip')}
                 disabled={isProcessing}
               >
                 <FileArchive className="mr-2 h-4 w-4" />
-                Use scraped_maps.zip
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => loadFromPublicFile('scraped_maps-2.zip')}
-                disabled={isProcessing}
-              >
-                <FileArchive className="mr-2 h-4 w-4" />
-                Use scraped_maps-2.zip
+                Use fixed_maps.zip
               </Button>
             </div>
           </div>
