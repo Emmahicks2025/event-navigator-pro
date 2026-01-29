@@ -1,5 +1,8 @@
 project_id = "lekhplpwdqtmbjmoqzyd"
 
+[functions.analyze-svg-file]
+verify_jwt = false
+
 [functions.cache-performer-images]
 verify_jwt = false
 
@@ -37,4 +40,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.bulk-add-inventory]
+verify_jwt = false
+
+[functions.clone-venue-map]
 verify_jwt = false
