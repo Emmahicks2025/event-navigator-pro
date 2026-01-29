@@ -393,6 +393,7 @@ export const DynamicVenueMap = ({
       const onClick = (e: Event) => {
         e.stopPropagation();
         e.preventDefault();
+        console.log('[DynamicVenueMap] click', { sectionId: section.id, name: section.name });
         handleSectionClick(section.id, section, eventSection);
       };
 
@@ -448,7 +449,6 @@ export const DynamicVenueMap = ({
 
       if (!elementId) return;
       if (processedElements.has(lowerElementId)) return;
-      if (skipPatterns.some((pattern) => pattern.test(elementId))) return;
 
       let matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean } | undefined;
       const identifiers = extractIdentifiers(elementId);
@@ -464,7 +464,12 @@ export const DynamicVenueMap = ({
         if (matchData) break;
       }
 
-      if (!matchData) return;
+      // Only skip generic SVG ids if we did NOT find a matching section.
+      // Some venue exports use ids like "g202" / "path203" for real sections.
+      if (!matchData) {
+        if (skipPatterns.some((pattern) => pattern.test(elementId))) return;
+        return;
+      }
       processedElements.add(lowerElementId);
       matchedSectionIds.add(matchData.section.id); // Mark section as matched via ID
       bindInteractivity(element, matchData, false);
@@ -502,6 +507,55 @@ export const DynamicVenueMap = ({
       // Always bind interactivity for text labels - they need direct click handling
       bindInteractivity(textEl, matchData, true);
     });
+
+    // Fallback: delegated click handler.
+    // Some SVG exports (and some sanitizers/transforms) make element-level listeners unreliable,
+    // or clicks may not land on SVG nodes (pointer-events quirks). We attach to BOTH the SVG
+    // element and the host container in capture phase.
+    const delegatedClick = (e: Event) => {
+      const target = e.target as Element | null;
+      if (!target) return;
+
+      // Find the most relevant element to identify a section
+      const textEl = target.closest('text');
+      const labeled = textEl?.textContent?.trim();
+
+      const candidates: string[] = [];
+      if (labeled) {
+        candidates.push(normalizeName(labeled), labeled.toLowerCase());
+        const num = labeled.match(/(\d{1,3})/);
+        if (num) candidates.push(num[1]);
+      }
+
+      // Walk up a few levels for ids like "202-group" / "g202" / "path203"
+      let el: Element | null = target;
+      for (let i = 0; i < 6 && el; i++) {
+        const id = el.getAttribute('id');
+        if (id) {
+          candidates.push(...extractIdentifiers(id));
+          const digits = id.match(/\d+/g);
+          if (digits) candidates.push(...digits);
+        }
+        el = el.parentElement;
+      }
+
+      const uniq = Array.from(new Set(candidates)).filter(Boolean);
+      for (const c of uniq) {
+        const matchData = sectionMapping.get(c);
+        if (matchData) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleSectionClick(matchData.section.id, matchData.section, matchData.eventSection);
+          return;
+        }
+      }
+    };
+    svgElement.addEventListener('click', delegatedClick, true);
+    cleanupRef.current.push(() => svgElement.removeEventListener('click', delegatedClick, true));
+
+    // Also attach to host wrapper so clicks still work if the SVG blocks events internally.
+    host.addEventListener('click', delegatedClick, true);
+    cleanupRef.current.push(() => host.removeEventListener('click', delegatedClick, true));
 
     return () => {
       cleanupRef.current.forEach(fn => fn());
