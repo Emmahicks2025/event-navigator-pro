@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Tables } from '@/integrations/supabase/types';
 
 interface Section {
   id: string;
@@ -30,6 +29,26 @@ interface DynamicVenueMapProps {
   onSectionHover: (section: Section | null, eventSection?: EventSection) => void;
 }
 
+// Extract clean SVG from potentially messy data
+const extractSvgContent = (rawSvg: string): string => {
+  if (!rawSvg) return '';
+  
+  // Find the <svg start and extract everything from there
+  const svgStartMatch = rawSvg.match(/<svg[\s\S]*<\/svg>/i);
+  if (svgStartMatch) {
+    return svgStartMatch[0];
+  }
+  
+  // If no match, return as-is (might already be clean)
+  return rawSvg;
+};
+
+// Parse viewBox from SVG if not provided
+const extractViewBox = (svgContent: string): string | null => {
+  const viewBoxMatch = svgContent.match(/viewBox=["']([^"']+)["']/i);
+  return viewBoxMatch ? viewBoxMatch[1] : null;
+};
+
 export const DynamicVenueMap = ({
   svgMap,
   viewBox,
@@ -41,6 +60,10 @@ export const DynamicVenueMap = ({
 }: DynamicVenueMapProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
+
+  // Clean SVG content - extract only the SVG element
+  const cleanSvgMap = extractSvgContent(svgMap);
+  const effectiveViewBox = viewBox || extractViewBox(cleanSvgMap);
 
   // Create a map of svg_path to section data
   const sectionMap = new Map<string, { section: Section; eventSection?: EventSection }>();
@@ -54,23 +77,29 @@ export const DynamicVenueMap = ({
   // Setup SVG interactivity
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !svgMap) return;
+    if (!container || !cleanSvgMap) return;
 
     const svgElement = container.querySelector('svg');
     if (!svgElement) return;
 
-    // Apply viewbox if provided
-    if (viewBox) {
-      svgElement.setAttribute('viewBox', viewBox);
+    // Apply viewbox if provided - make SVG responsive
+    if (effectiveViewBox) {
+      svgElement.setAttribute('viewBox', effectiveViewBox);
     }
-
-    // Style the SVG
+    
+    // Remove fixed width/height for responsive scaling
+    svgElement.removeAttribute('width');
+    svgElement.removeAttribute('height');
+    
+    // Style the SVG for responsive fit
     svgElement.style.width = '100%';
-    svgElement.style.height = 'auto';
-    svgElement.style.maxWidth = 'none';
+    svgElement.style.height = '100%';
+    svgElement.style.maxWidth = '100%';
+    svgElement.style.maxHeight = '100%';
+    svgElement.style.display = 'block';
 
     // Find all elements that could be sections
-    const allElements = svgElement.querySelectorAll('path, polygon, rect, circle, g');
+    const allElements = svgElement.querySelectorAll('path, polygon, rect, circle, g[id]');
     
     allElements.forEach((element) => {
       const id = element.getAttribute('id');
@@ -90,7 +119,7 @@ export const DynamicVenueMap = ({
           element.classList.add('venue-section-selected');
         } else if (isSoldOut) {
           element.classList.add('venue-section-sold-out');
-        } else if (eventSection) {
+        } else if (eventSection && eventSection.available_count > 0) {
           element.classList.add('venue-section-available');
         }
 
@@ -172,14 +201,22 @@ export const DynamicVenueMap = ({
         }
       });
     };
-  }, [svgMap, sections, eventSections, selectedSectionId, onSectionClick, onSectionHover]);
+  }, [cleanSvgMap, sections, eventSections, selectedSectionId, onSectionClick, onSectionHover, effectiveViewBox, sectionMap]);
 
   const handleZoomIn = () => setZoom(z => Math.min(3, z + 0.25));
   const handleZoomOut = () => setZoom(z => Math.max(0.5, z - 0.25));
   const handleReset = () => setZoom(1);
 
+  if (!cleanSvgMap) {
+    return (
+      <div className="bg-card rounded-lg border border-border p-8 text-center text-muted-foreground">
+        No venue map available
+      </div>
+    );
+  }
+
   return (
-    <div className="relative">
+    <div className="relative h-full">
       {/* Zoom Controls */}
       <div className="absolute top-2 right-2 z-10 flex gap-1 bg-card/90 backdrop-blur rounded-lg p-1 border border-border">
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleZoomOut}>
@@ -196,19 +233,19 @@ export const DynamicVenueMap = ({
         </Button>
       </div>
 
-      {/* Map Container */}
+      {/* Map Container - No scrollbar, responsive fit */}
       <div 
-        className="overflow-auto bg-card rounded-lg border border-border"
-        style={{ maxHeight: '500px' }}
+        className="bg-card rounded-lg border border-border overflow-hidden"
+        style={{ aspectRatio: '1 / 1' }}
       >
         <div
           ref={containerRef}
-          className="p-4 min-w-fit"
+          className="w-full h-full flex items-center justify-center p-4"
           style={{ 
             transform: `scale(${zoom})`,
-            transformOrigin: 'top left',
+            transformOrigin: 'center center',
           }}
-          dangerouslySetInnerHTML={{ __html: svgMap }}
+          dangerouslySetInnerHTML={{ __html: cleanSvgMap }}
         />
       </div>
     </div>
