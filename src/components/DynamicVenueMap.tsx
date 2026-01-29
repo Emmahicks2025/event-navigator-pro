@@ -357,9 +357,10 @@ export const DynamicVenueMap = ({
 
     const bindInteractivity = (sourceEl: Element, matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean }, isTextLabel = false) => {
       const { section, eventSection, hasTickets } = matchData;
-      
-      // For non-text elements, skip if already processed this section
-      if (!isTextLabel && matchedSectionIds.has(section.id)) return;
+
+      // NOTE: Don't early-return just because a section was "matched".
+      // We still need to (re)apply styling when selectedSectionId changes and
+      // we still need hover handlers on the correct target element.
 
       // Prefer binding to a containing <g> (bigger hover target) but style the inner shape.
       const groupEl = sourceEl.closest('g') || sourceEl;
@@ -375,20 +376,18 @@ export const DynamicVenueMap = ({
 
       const isSelected = selectedSectionId === section.id;
 
-      // Only apply styling if not already processed
-      if (!matchedSectionIds.has(section.id)) {
-        matchedSectionIds.add(section.id);
-        
-        targetElement.classList.remove(
-          'venue-section-available',
-          'venue-section-unavailable',
-          'venue-section-selected'
-        );
+      // Always apply styling on each run (selectedSectionId is in the effect signature)
+      targetElement.classList.remove(
+        'venue-section-available',
+        'venue-section-unavailable',
+        'venue-section-selected'
+      );
 
-        if (isSelected) targetElement.classList.add('venue-section-selected');
-        else if (hasTickets) targetElement.classList.add('venue-section-available');
-        else targetElement.classList.add('venue-section-unavailable');
-      }
+      if (isSelected) targetElement.classList.add('venue-section-selected');
+      else if (hasTickets) targetElement.classList.add('venue-section-available');
+      else targetElement.classList.add('venue-section-unavailable');
+
+      matchedSectionIds.add(section.id);
 
       // Always bind click handlers for matched sections - even if no tickets, clicking should still work
       // (filtering to "no tickets in this section" is valid UX feedback)
@@ -462,7 +461,6 @@ export const DynamicVenueMap = ({
         return;
       }
       processedElements.add(lowerElementId);
-      matchedSectionIds.add(matchData.section.id); // Mark section as matched via ID
       bindInteractivity(element, matchData, false);
     });
 
