@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { Upload, FileArchive, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Upload, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import JSZip from 'jszip';
@@ -243,28 +243,6 @@ export default function VenueMapUploader() {
     }
   };
 
-  const loadFromPublicFile = async (fileName: string) => {
-    setIsProcessing(true);
-    setProgress(0);
-    setResults([]);
-    setSummary(null);
-    
-    try {
-      console.log(`Fetching ${fileName} from public folder...`);
-      const response = await fetch(`/temp/${fileName}`);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch file: ${response.statusText}`);
-      }
-      const blob = await response.blob();
-      console.log(`Fetched blob size: ${blob.size}`);
-      const file = new File([blob], fileName, { type: 'application/zip' });
-      await processZipFile(file);
-    } catch (error) {
-      console.error('Error loading public file:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to load file');
-      setIsProcessing(false);
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -278,7 +256,7 @@ export default function VenueMapUploader() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <FileArchive className="h-5 w-5" />
+            <Upload className="h-5 w-5" />
             Upload ZIP File
           </CardTitle>
           <CardDescription>
@@ -293,36 +271,23 @@ export default function VenueMapUploader() {
             onChange={handleFileChange}
             className="hidden"
           />
-          <div className="flex flex-wrap gap-4">
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isProcessing}
-              size="lg"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Select ZIP File
-                </>
-              )}
-            </Button>
-            
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => loadFromPublicFile('fixed_maps.zip')}
-                disabled={isProcessing}
-              >
-                <FileArchive className="mr-2 h-4 w-4" />
-                Use fixed_maps.zip
-              </Button>
-            </div>
-          </div>
+          <Button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isProcessing}
+            size="lg"
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <Upload className="mr-2 h-4 w-4" />
+                Select ZIP File
+              </>
+            )}
+          </Button>
 
           {isProcessing && (
             <div className="mt-4">
