@@ -366,17 +366,30 @@ export const DynamicVenueMap = ({
       else if (hasTickets) targetElement.classList.add('venue-section-available');
       else targetElement.classList.add('venue-section-unavailable');
 
-      if (hasTickets || isSelected) {
-        const onEnter = () => handleSectionHover(section, eventSection);
-        const onLeave = () => handleSectionHover(null);
-        const onClick = (e: Event) => {
-          e.stopPropagation();
-          handleSectionClick(section.id, section, eventSection);
-        };
+      // Always bind click if section has tickets OR is selected, regardless of visual state
+      const bindClick = hasTickets || isSelected;
+      
+      const onEnter = () => handleSectionHover(section, eventSection);
+      const onLeave = () => handleSectionHover(null);
+      const onClick = (e: Event) => {
+        e.stopPropagation();
+        e.preventDefault();
+        handleSectionClick(section.id, section, eventSection);
+      };
 
+      if (bindClick) {
+        // Attach to both the group and the source element (text) for reliable click capture
         groupEl.addEventListener('mouseenter', onEnter);
         groupEl.addEventListener('mouseleave', onLeave);
         groupEl.addEventListener('click', onClick);
+        
+        // Also attach click to the source element itself (for text labels)
+        if (sourceEl !== groupEl) {
+          sourceEl.addEventListener('click', onClick);
+          cleanupRef.current.push(() => {
+            sourceEl.removeEventListener('click', onClick);
+          });
+        }
 
         cleanupRef.current.push(() => {
           groupEl.removeEventListener('mouseenter', onEnter);
