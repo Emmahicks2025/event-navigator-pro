@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, forwardRef, type MutableRefObject } from 'react';
 import { Button } from '@/components/ui/button';
 import { Info, Loader2 } from 'lucide-react';
 
@@ -20,15 +20,28 @@ interface VirtualizedTicketListProps {
   pageSize?: number;
 }
 
-export const VirtualizedTicketList = ({ 
-  listings, 
-  onSelect, 
-  pageSize = 15 
-}: VirtualizedTicketListProps) => {
+export const VirtualizedTicketList = forwardRef<HTMLDivElement, VirtualizedTicketListProps>(function VirtualizedTicketList(
+  {
+    listings,
+    onSelect,
+    pageSize = 15,
+  }: VirtualizedTicketListProps,
+  ref,
+) {
   const [visibleCount, setVisibleCount] = useState(pageSize);
   const [isLoading, setIsLoading] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const setContainerRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      containerRef.current = node;
+      if (!ref) return;
+      if (typeof ref === 'function') ref(node);
+      else (ref as MutableRefObject<HTMLDivElement | null>).current = node;
+    },
+    [ref],
+  );
 
   const visibleListings = listings.slice(0, visibleCount);
   const hasMore = visibleCount < listings.length;
@@ -85,7 +98,7 @@ export const VirtualizedTicketList = ({
   }
 
   return (
-    <div ref={containerRef} className="space-y-3">
+    <div ref={setContainerRef} className="space-y-3">
       {visibleListings.map((listing) => (
         <div
           key={listing.id}
@@ -155,6 +168,6 @@ export const VirtualizedTicketList = ({
       </div>
     </div>
   );
-};
+});
 
 export default VirtualizedTicketList;
