@@ -100,7 +100,7 @@ serve(async (req) => {
     console.log(`Total files in zip: ${allFileNames.length}`);
     console.log(`Sample file names: ${allFileNames.slice(0, 15).join(', ')}`);
     
-    const venueMapFiles = new Map<string, string>();
+    const venueMapFiles = new Map<string, { svg: string; venueName: string | null }>();
     
     // Process files
     for (const fileName of allFileNames) {
@@ -109,18 +109,44 @@ serve(async (req) => {
       if (file.dir) continue;
       
       const lowerName = fileName.toLowerCase();
+      // Skip README/documentation files
+      if (lowerName.includes('readme') || lowerName.endsWith('.md')) {
+        console.log(`Skipping documentation: ${fileName}`);
+        continue;
+      }
+      
       const isTextFile = lowerName.endsWith('.txt') || lowerName.endsWith('.svg') || lowerName.endsWith('.xml');
       
       if (isTextFile) {
         try {
           const content = await file.async('string');
-          // Check for SVG content markers
-          if (content.includes('<svg') || content.includes('<path') || content.includes('<g ') || content.includes('viewBox')) {
+          
+          // Find SVG content - it may have metadata header before it
+          const svgStartIndex = content.indexOf('<svg');
+          
+          if (svgStartIndex !== -1) {
+            // Extract the SVG portion
+            const svgContent = content.substring(svgStartIndex);
+            
+            // Extract venue name from metadata header (text before <svg)
+            const headerText = content.substring(0, svgStartIndex);
+            let extractedVenueName: string | null = null;
+            
+            // Look for "Venue:" line in header
+            const venueMatch = headerText.match(/Venue:\s*(.+?)(?:\n|$)/i);
+            if (venueMatch) {
+              extractedVenueName = venueMatch[1].trim();
+              console.log(`Extracted venue name from header: "${extractedVenueName}"`);
+            }
+            
             const baseName = fileName.split('/').pop() || fileName;
-            venueMapFiles.set(baseName, content);
-            console.log(`Found SVG map: ${baseName} (${content.length} chars)`);
+            venueMapFiles.set(baseName, { svg: svgContent, venueName: extractedVenueName });
+            console.log(`Found SVG map: ${baseName} (${svgContent.length} chars, venue: ${extractedVenueName || 'from filename'})`);
+          } else if (content.includes('<path') || content.includes('<g ') || content.includes('viewBox')) {
+            // Partial SVG without opening tag - skip
+            console.log(`File ${fileName} has SVG elements but no <svg> tag`);
           } else {
-            console.log(`File ${fileName} no SVG (first 50 chars: ${content.substring(0, 50).replace(/\n/g, ' ')})`);
+            console.log(`File ${fileName} no SVG (first 100 chars: ${content.substring(0, 100).replace(/\n/g, ' ')})`);
           }
         } catch (e) {
           console.error(`Error reading ${fileName}: ${e}`);
@@ -154,16 +180,23 @@ serve(async (req) => {
       updated: 0,
       skipped: 0,
       unmatched: [] as string[],
-      matches: [] as { fileName: string; venueName: string }[],
+      matches: [] as { fileName: string; venueName: string; extractedName: string | null }[],
     };
 
     // Process each map file
-    for (const [fileName, svgContent] of venueMapFiles) {
-      const matchedVenue = findBestMatch(fileName, venues || []);
+    for (const [fileName, { svg: svgContent, venueName: extractedVenueName }] of venueMapFiles) {
+      // Try matching with extracted venue name first, then filename
+      let matchedVenue = extractedVenueName 
+        ? findBestMatch(extractedVenueName, venues || [])
+        : null;
+      
+      if (!matchedVenue) {
+        matchedVenue = findBestMatch(fileName, venues || []);
+      }
       
       if (matchedVenue) {
         results.matched++;
-        results.matches.push({ fileName, venueName: matchedVenue.name });
+        results.matches.push({ fileName, venueName: matchedVenue.name, extractedName: extractedVenueName });
         
         // Check if venue already has a map
         const existingVenue = venues?.find(v => v.id === matchedVenue.id);
@@ -183,11 +216,11 @@ serve(async (req) => {
           console.error(`Failed to update ${matchedVenue.name}: ${updateError.message}`);
         } else {
           results.updated++;
-          console.log(`Updated venue: ${matchedVenue.name}`);
+          console.log(`Updated venue: ${matchedVenue.name} (matched via: ${extractedVenueName ? 'header' : 'filename'})`);
         }
       } else {
-        results.unmatched.push(fileName);
-        console.log(`No match found for: ${fileName}`);
+        results.unmatched.push(`${fileName}${extractedVenueName ? ` (header: ${extractedVenueName})` : ''}`);
+        console.log(`No match found for: ${fileName} (extracted: ${extractedVenueName})`);
       }
     }
 
