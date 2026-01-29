@@ -541,6 +541,11 @@ export const DynamicVenueMap = ({
     svgElement.addEventListener('click', delegatedClick, true);
     cleanupRef.current.push(() => svgElement.removeEventListener('click', delegatedClick, true));
 
+    // Also attach to the host wrapper so clicks still register when SVG internals
+    // swallow events (common with some exported venue maps).
+    host.addEventListener('click', delegatedClick, true);
+    cleanupRef.current.push(() => host.removeEventListener('click', delegatedClick, true));
+
     return () => {
       cleanupRef.current.forEach(fn => fn());
       cleanupRef.current = [];
