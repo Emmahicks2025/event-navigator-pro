@@ -37,9 +37,11 @@ const EventDetail = () => {
   const event = dbEvent ? transformDbEventToEvent(dbEvent) : null;
 
   // Transform tickets to TicketListingItem format
-  const listings: TicketListingItem[] = useMemo(() => {
+  // NOTE: we also keep sectionId to make filtering reliable (don’t match by display name).
+  const listings = useMemo(() => {
     return tickets.map((ticket: any) => ({
       id: ticket.id,
+      sectionId: ticket.event_section?.section_id as string | undefined,
       section: ticket.event_section?.section?.name || 'Unknown Section',
       row: ticket.row_name || 'GA',
       seats: ticket.quantity,
@@ -89,23 +91,18 @@ const EventDetail = () => {
 
   // Sort and filter listings
   const sortedListings = useMemo(() => {
-    let filtered = listings.filter(l => l.seats >= ticketCount);
-    
+    let filtered = listings.filter((l: any) => l.seats >= ticketCount);
+
     if (selectedSectionId) {
-      const selectedSection = eventSections.find((es: any) => es.section_id === selectedSectionId);
-      if (selectedSection) {
-        filtered = filtered.filter(l => 
-          l.section === (selectedSection as any).section?.name
-        );
-      }
+      filtered = filtered.filter((l: any) => l.sectionId === selectedSectionId);
     }
-    
+
     return [...filtered].sort((a, b) => {
       if (sortBy === 'price-low') return a.price - b.price;
       if (sortBy === 'price-high') return b.price - a.price;
       return 0;
     });
-  }, [listings, sortBy, ticketCount, selectedSectionId, eventSections]);
+  }, [listings, sortBy, ticketCount, selectedSectionId]);
 
   const handleSelectListing = (listing: TicketListingItem) => {
     if (!event) return;

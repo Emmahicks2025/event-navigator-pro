@@ -210,6 +210,10 @@ export const DynamicVenueMap = ({
     const host = svgHostRef.current;
     if (!host) return;
     host.innerHTML = svgContent || '';
+
+    // IMPORTANT: SVG markup can change when navigating between events/venues.
+    // Reset the processed signature so we always (re)bind interactivity for the new SVG.
+    processedRef.current = '';
   }, [svgContent]);
   
   // Build comprehensive section mapping (inventory-driven availability)
@@ -298,7 +302,10 @@ export const DynamicVenueMap = ({
     if (!svgElement) return;
 
     // Create a signature for this processing to prevent duplicate work
-    const processingSignature = `${effectiveViewBox || 'novb'}-${selectedSectionId}-${sections.length}-${eventSections.length}-${ticketInventory ? 'inv' : 'es'}`;
+     // Include SVG content fingerprint so navigation between events doesn't accidentally reuse
+     // the previous processed signature (which would skip binding and make the map non-interactive).
+     const svgFingerprint = `${svgContent.length}:${svgContent.slice(0, 64)}`;
+     const processingSignature = `${svgFingerprint}-${effectiveViewBox || 'novb'}-${selectedSectionId}-${sections.length}-${eventSections.length}-${ticketInventory ? 'inv' : 'es'}`;
     if (processedRef.current === processingSignature) return;
     processedRef.current = processingSignature;
 

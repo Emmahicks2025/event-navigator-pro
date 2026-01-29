@@ -4,6 +4,8 @@ import { Info, Loader2 } from 'lucide-react';
 
 export interface TicketListingItem {
   id: string;
+  /** Database section id (used for reliable filtering when a map section is clicked) */
+  sectionId?: string;
   section: string;
   row: string;
   seats: number;
