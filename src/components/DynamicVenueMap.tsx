@@ -28,6 +28,16 @@ interface DynamicVenueMapProps {
   onSectionClick: (sectionId: string, section: Section, eventSection?: EventSection) => void;
   onSectionHover: (section: Section | null, eventSection?: EventSection) => void;
   ticketInventory?: Map<string, number>; // section_id -> ticket count (inventory-driven availability)
+  onDebugEvent?: (info: {
+    at: string;
+    targetTag?: string;
+    targetId?: string | null;
+    closestId?: string | null;
+    labelText?: string | null;
+    resolvedSectionId?: string | null;
+    resolutionPath?: 'mapping' | 'proximity' | 'none';
+    candidateCount?: number;
+  }) => void;
 }
 
 // Sanitize SVG: strip external links, scripts, metadata, event handlers
@@ -169,6 +179,7 @@ export const DynamicVenueMap = ({
   onSectionClick,
   onSectionHover,
   ticketInventory,
+  onDebugEvent,
 }: DynamicVenueMapProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgHostRef = useRef<HTMLDivElement>(null);
@@ -565,9 +576,25 @@ export const DynamicVenueMap = ({
       const target = e.target as Element | null;
       if (!target) return;
 
+      const debugBase = {
+        at: new Date().toISOString(),
+        targetTag: (target as any)?.tagName,
+        targetId: target.getAttribute?.('id') ?? null,
+        closestId: (target.closest?.('[id]') as Element | null)?.getAttribute?.('id') ?? null,
+      };
+
       // Find the most relevant element to identify a section
       const textEl = target.closest('text');
       const labeled = textEl?.textContent?.trim();
+
+      // Emit early so we can see whether we even found a label/ids.
+      onDebugEvent?.({
+        ...debugBase,
+        labelText: labeled ?? null,
+        resolvedSectionId: null,
+        resolutionPath: 'none',
+        candidateCount: 0,
+      });
 
       const candidates: string[] = [];
       if (labeled) {
@@ -594,6 +621,13 @@ export const DynamicVenueMap = ({
         if (matchData) {
           e.preventDefault();
           e.stopPropagation();
+          onDebugEvent?.({
+            ...debugBase,
+            labelText: labeled ?? null,
+            resolvedSectionId: matchData.section.id,
+            resolutionPath: 'mapping',
+            candidateCount: uniq.length,
+          });
           handleSectionClick(matchData.section.id, matchData.section, matchData.eventSection);
           return;
         }
@@ -607,9 +641,26 @@ export const DynamicVenueMap = ({
         if (mapped) {
           e.preventDefault();
           e.stopPropagation();
+          onDebugEvent?.({
+            ...debugBase,
+            labelText: labeled ?? null,
+            resolvedSectionId: mapped.section.id,
+            resolutionPath: 'proximity',
+            candidateCount: uniq.length,
+          });
           handleSectionClick(mapped.section.id, mapped.section, mapped.eventSection);
+          return;
         }
       }
+
+      // No match.
+      onDebugEvent?.({
+        ...debugBase,
+        labelText: labeled ?? null,
+        resolvedSectionId: null,
+        resolutionPath: 'none',
+        candidateCount: uniq.length,
+      });
     };
     svgElement.addEventListener('click', delegatedClick, true);
     cleanupRef.current.push(() => svgElement.removeEventListener('click', delegatedClick, true));

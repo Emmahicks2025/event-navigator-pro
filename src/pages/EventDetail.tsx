@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MapDebugChip, type MapClickDebugInfo } from '@/components/MapDebugChip';
 import {
   Select,
   SelectContent,
@@ -27,6 +28,7 @@ const EventDetail = () => {
   const [showMap, setShowMap] = useState(true);
   const [sortBy, setSortBy] = useState('price-low');
   const [ticketCount, setTicketCount] = useState(1);
+  const [mapDebug, setMapDebug] = useState<MapClickDebugInfo | null>(null);
 
   // Fetch data from database
   const { data: dbEvent, isLoading: loadingEvent } = useEvent(id);
@@ -291,7 +293,7 @@ const EventDetail = () => {
 
           {/* Right Side - Map */}
           {showMap && hasVenueMap && (
-            <div className="flex-1 max-w-xl sticky top-24 self-start">
+            <div className="relative flex-1 max-w-xl sticky top-24 self-start">
               {/* Section Tooltip */}
               {hoveredSection && (
                 <div className="absolute top-12 left-1/2 -translate-x-1/2 z-20 bg-card border border-border rounded-lg p-3 shadow-xl">
@@ -314,7 +316,12 @@ const EventDetail = () => {
                   onSectionClick={handleSectionClick}
                   onSectionHover={handleSectionHover}
                   ticketInventory={ticketInventoryMap}
+                  onDebugEvent={(info) => setMapDebug(info)}
                 />
+              )}
+
+              {import.meta.env.DEV && (
+                <MapDebugChip selectedSectionId={selectedSectionId} lastClick={mapDebug} />
               )}
             </div>
           )}
