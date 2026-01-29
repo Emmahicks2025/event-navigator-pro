@@ -387,6 +387,15 @@ export const DynamicVenueMap = ({
       (targetElement as SVGElement).style.pointerEvents = 'all';
       (targetElement as SVGElement).style.cursor = 'pointer';
 
+      // *** CRITICAL FIX: Register ALL matched elements in elementToMatch ***
+      // This ensures the delegated click handler can resolve sections by walking up the DOM.
+      elementToMatch.set(sourceEl, matchData);
+      elementToMatch.set(groupEl, matchData);
+      elementToMatch.set(targetElement, matchData);
+      if (innerShape && innerShape !== targetElement) {
+        elementToMatch.set(innerShape, matchData);
+      }
+
       const isSelected = selectedSectionId === section.id;
 
       // Always apply styling on each run (selectedSectionId is in the effect signature)
@@ -418,6 +427,7 @@ export const DynamicVenueMap = ({
         if (textGroup) {
           (textGroup as SVGElement).style.cursor = 'pointer';
           (textGroup as SVGElement).style.pointerEvents = 'all';
+          elementToMatch.set(textGroup, matchData);
           textGroup.addEventListener('mouseenter', onEnter);
           textGroup.addEventListener('mouseleave', onLeave);
           cleanupRef.current.push(() => {
@@ -589,15 +599,43 @@ export const DynamicVenueMap = ({
       const textEl = target.closest('text');
       const labeled = textEl?.textContent?.trim();
 
-      // Emit early so we can see whether we even found a label/ids.
-      onDebugEvent?.({
-        ...debugBase,
-        labelText: labeled ?? null,
-        resolvedSectionId: null,
-        resolutionPath: 'none',
-        candidateCount: 0,
-      });
+      const shouldLog =
+        !!debugLog &&
+        typeof window !== 'undefined' &&
+        import.meta.env.DEV &&
+        window.sessionStorage?.getItem('tixorbit_map_debug') === '1';
 
+      // *** STRATEGY 0: Walk up DOM and check elementToMatch (primary, most reliable) ***
+      // This works for ALL binding strategies since we now populate elementToMatch universally.
+      let walkEl: Element | null = target;
+      for (let i = 0; i < 10 && walkEl; i++) {
+        const mapped = elementToMatch.get(walkEl);
+        if (mapped) {
+          e.preventDefault();
+          e.stopPropagation();
+          onDebugEvent?.({
+            ...debugBase,
+            labelText: labeled ?? null,
+            resolvedSectionId: mapped.section.id,
+            resolutionPath: 'mapping',
+            candidateCount: 0,
+          });
+          if (shouldLog) {
+            // eslint-disable-next-line no-console
+            console.info('[MapDebug] resolved via elementToMatch (DOM walk)', {
+              resolvedSectionId: mapped.section.id,
+              resolvedSectionName: mapped.section.name,
+              walkDepth: i,
+              elementTag: walkEl.tagName,
+            });
+          }
+          handleSectionClick(mapped.section.id, mapped.section, mapped.eventSection);
+          return;
+        }
+        walkEl = walkEl.parentElement;
+      }
+
+      // Fallback: ID/text candidates (in case elementToMatch wasn't populated for this element)
       const candidates: string[] = [];
       if (labeled) {
         candidates.push(normalizeName(labeled), labeled.toLowerCase());
@@ -619,15 +657,9 @@ export const DynamicVenueMap = ({
 
       const uniq = Array.from(new Set(candidates)).filter(Boolean);
 
-      const shouldLog =
-        !!debugLog &&
-        typeof window !== 'undefined' &&
-        import.meta.env.DEV &&
-        window.sessionStorage?.getItem('tixorbit_map_debug') === '1';
-
       if (shouldLog) {
         // eslint-disable-next-line no-console
-        console.groupCollapsed('[MapDebug] click resolution');
+        console.groupCollapsed('[MapDebug] click resolution (fallback to ID/text)');
         // eslint-disable-next-line no-console
         console.log('target', {
           tag: (target as any)?.tagName,
@@ -655,42 +687,13 @@ export const DynamicVenueMap = ({
           });
           if (shouldLog) {
             // eslint-disable-next-line no-console
-            console.info('[MapDebug] resolved via mapping', {
+            console.info('[MapDebug] resolved via sectionMapping (ID/text)', {
               candidate: c,
               resolvedSectionId: matchData.section.id,
               resolvedSectionName: matchData.section.name,
             });
           }
           handleSectionClick(matchData.section.id, matchData.section, matchData.eventSection);
-          return;
-        }
-      }
-
-      // Final fallback: if the clicked thing is a "section shape" (or inside one), use the
-      // proximity-based mapping computed above.
-      const shape = target.closest('.section-path, [class*="section-path"], [class*="section_"]');
-      if (shape) {
-        const mapped = elementToMatch.get(shape);
-        if (mapped) {
-          e.preventDefault();
-          e.stopPropagation();
-          onDebugEvent?.({
-            ...debugBase,
-            labelText: labeled ?? null,
-            resolvedSectionId: mapped.section.id,
-            resolutionPath: 'proximity',
-            candidateCount: uniq.length,
-          });
-          if (shouldLog) {
-            // eslint-disable-next-line no-console
-            console.info('[MapDebug] resolved via proximity', {
-              resolvedSectionId: mapped.section.id,
-              resolvedSectionName: mapped.section.name,
-              shapeClass: (shape as Element).getAttribute?.('class') ?? null,
-              shapeId: (shape as Element).getAttribute?.('id') ?? null,
-            });
-          }
-          handleSectionClick(mapped.section.id, mapped.section, mapped.eventSection);
           return;
         }
       }
