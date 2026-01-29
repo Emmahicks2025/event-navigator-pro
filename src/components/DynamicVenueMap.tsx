@@ -888,6 +888,11 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
 
     // Also attach to the host wrapper so clicks still register when SVG internals
     // swallow events (common with some exported venue maps).
+    // Attach to the container too. If the SVG sets pointer-events:none, clicks land on the container,
+    // and the host (child) will never receive the event.
+    events.forEach((evt) => container.addEventListener(evt, delegatedClick, true));
+    cleanupRef.current.push(() => events.forEach((evt) => container.removeEventListener(evt, delegatedClick, true)));
+
     events.forEach((evt) => host.addEventListener(evt, delegatedClick, true));
     cleanupRef.current.push(() => events.forEach((evt) => host.removeEventListener(evt, delegatedClick, true)));
 
@@ -901,7 +906,7 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
   const handleZoomOut = useCallback(() => setZoom(z => Math.max(0.5, z - 0.25)), []);
   const handleReset = useCallback(() => setZoom(1), []);
 
-  // Debug hook: verify pointer events reach the wrapper even if SVG swallows native listeners.
+  // Debug hook: verify pointer events reach the container even if the SVG disables pointer events.
   const handleHostPointerDownCapture = useCallback(
     (e: any) => {
       onDebugEvent?.({
@@ -980,6 +985,7 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
         <div
             ref={containerRef}
           className="w-full h-full flex items-center justify-center p-2 will-change-transform"
+            onPointerDownCapture={handleHostPointerDownCapture}
           style={{ 
             transform: `scale(${zoom})`,
             transformOrigin: 'center center',
@@ -988,7 +994,6 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
             <div
               ref={svgHostRef}
               className="w-full h-full"
-              onPointerDownCapture={handleHostPointerDownCapture}
             />
         </div>
       </div>
