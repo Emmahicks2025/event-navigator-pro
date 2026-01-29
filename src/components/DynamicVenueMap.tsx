@@ -350,11 +350,11 @@ export const DynamicVenueMap = ({
       /^background$/i, /^border$/i, /^outline$/i, /^floor$/i,
     ];
 
-    const bindInteractivity = (sourceEl: Element, matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean }) => {
+    const bindInteractivity = (sourceEl: Element, matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean }, isTextLabel = false) => {
       const { section, eventSection, hasTickets } = matchData;
-      if (matchedSectionIds.has(section.id)) return;
-
-      matchedSectionIds.add(section.id);
+      
+      // For non-text elements, skip if already processed this section
+      if (!isTextLabel && matchedSectionIds.has(section.id)) return;
 
       // Prefer binding to a containing <g> (bigger hover target) but style the inner shape.
       const groupEl = sourceEl.closest('g') || sourceEl;
@@ -363,17 +363,22 @@ export const DynamicVenueMap = ({
 
       const isSelected = selectedSectionId === section.id;
 
-      targetElement.classList.remove(
-        'venue-section-available',
-        'venue-section-unavailable',
-        'venue-section-selected'
-      );
+      // Only apply styling if not already processed
+      if (!matchedSectionIds.has(section.id)) {
+        matchedSectionIds.add(section.id);
+        
+        targetElement.classList.remove(
+          'venue-section-available',
+          'venue-section-unavailable',
+          'venue-section-selected'
+        );
 
-      if (isSelected) targetElement.classList.add('venue-section-selected');
-      else if (hasTickets) targetElement.classList.add('venue-section-available');
-      else targetElement.classList.add('venue-section-unavailable');
+        if (isSelected) targetElement.classList.add('venue-section-selected');
+        else if (hasTickets) targetElement.classList.add('venue-section-available');
+        else targetElement.classList.add('venue-section-unavailable');
+      }
 
-      // Always bind click if section has tickets OR is selected, regardless of visual state
+      // Always bind click if section has tickets OR is selected
       const bindClick = hasTickets || isSelected;
       
       const onEnter = () => handleSectionHover(section, eventSection);
@@ -385,24 +390,24 @@ export const DynamicVenueMap = ({
       };
 
       if (bindClick) {
-        // Attach to both the group and the source element (text) for reliable click capture
-        groupEl.addEventListener('mouseenter', onEnter);
-        groupEl.addEventListener('mouseleave', onLeave);
-        groupEl.addEventListener('click', onClick);
-        
-        // Also attach click to the source element itself (for text labels)
-        if (sourceEl !== groupEl) {
+        // For text labels, ALWAYS attach click to the text element itself
+        if (isTextLabel) {
           sourceEl.addEventListener('click', onClick);
           cleanupRef.current.push(() => {
             sourceEl.removeEventListener('click', onClick);
           });
-        }
+        } else {
+          // For ID-based elements, attach to the group
+          groupEl.addEventListener('mouseenter', onEnter);
+          groupEl.addEventListener('mouseleave', onLeave);
+          groupEl.addEventListener('click', onClick);
 
-        cleanupRef.current.push(() => {
-          groupEl.removeEventListener('mouseenter', onEnter);
-          groupEl.removeEventListener('mouseleave', onLeave);
-          groupEl.removeEventListener('click', onClick);
-        });
+          cleanupRef.current.push(() => {
+            groupEl.removeEventListener('mouseenter', onEnter);
+            groupEl.removeEventListener('mouseleave', onLeave);
+            groupEl.removeEventListener('click', onClick);
+          });
+        }
       }
     };
 
@@ -424,7 +429,7 @@ export const DynamicVenueMap = ({
 
       if (!matchData) return;
       processedElements.add(lowerElementId);
-      bindInteractivity(element, matchData);
+      bindInteractivity(element, matchData, false);
     });
 
     // Strategy 2: text-label based processing (for SVGs without ids)
@@ -454,7 +459,7 @@ export const DynamicVenueMap = ({
       }
       if (!matchData) return;
 
-      bindInteractivity(textEl, matchData);
+      bindInteractivity(textEl, matchData, true);
     });
 
     return () => {
