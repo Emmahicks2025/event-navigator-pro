@@ -59,25 +59,47 @@ function findBestMatch(fileName: string, venues: { id: string; name: string }[])
   return null;
 }
 
-// Extract SVG content from text that might contain HTML wrapper
-function extractSvgContent(content: string): string | null {
-  // Check if it's already clean SVG
-  if (content.trim().startsWith('<svg') || content.trim().startsWith('<?xml')) {
-    return content;
+// Extract clean SVG content from text that may have metadata header
+function extractSvgContent(content: string): { svg: string | null; venueName: string | null } {
+  // Extract venue name from header metadata (before SVG)
+  let venueName: string | null = null;
+  const venueMatch = content.match(/Venue:\s*(.+?)(?:\n|$)/i);
+  if (venueMatch) {
+    venueName = venueMatch[1].trim();
   }
   
-  // Try to extract SVG from HTML
-  const svgMatch = content.match(/<svg[\s\S]*?<\/svg>/i);
-  if (svgMatch) {
-    return svgMatch[0];
+  // Also try "Title:" pattern
+  if (!venueName) {
+    const titleMatch = content.match(/Title:\s*(.+?)(?:\s*-\s*|\n|$)/i);
+    if (titleMatch) {
+      venueName = titleMatch[1].trim();
+    }
   }
   
-  // Check for SVG markers
-  if (content.includes('<path') || content.includes('<g ') || content.includes('viewBox')) {
-    return content;
+  // Find the actual <svg opening tag
+  const svgOpenMatch = content.match(/<svg[^>]*>/i);
+  if (!svgOpenMatch) {
+    return { svg: null, venueName };
   }
   
-  return null;
+  const svgStartIndex = content.indexOf(svgOpenMatch[0]);
+  
+  // Find the closing </svg> tag
+  const svgEndIndex = content.lastIndexOf('</svg>');
+  if (svgEndIndex === -1) {
+    return { svg: null, venueName };
+  }
+  
+  // Extract only the SVG portion (from <svg to </svg>)
+  const svgContent = content.substring(svgStartIndex, svgEndIndex + 6);
+  
+  // Validate it's proper SVG
+  if (!svgContent.includes('<svg') || !svgContent.includes('</svg>')) {
+    return { svg: null, venueName };
+  }
+  
+  console.log(`Extracted clean SVG: ${svgContent.length} chars, venue: ${venueName || 'unknown'}`);
+  return { svg: svgContent, venueName };
 }
 
 export default function VenueMapUploader() {
@@ -145,7 +167,7 @@ export default function VenueMapUploader() {
           const content = await fileObj.async('string');
           
           // Check if it contains SVG content
-          const svgContent = extractSvgContent(content);
+          const { svg: svgContent, venueName: extractedVenueName } = extractSvgContent(content);
           if (!svgContent) {
             console.log(`Skipping ${fileName} - no SVG content found`);
             continue;
@@ -153,8 +175,14 @@ export default function VenueMapUploader() {
 
           const baseName = fileName.split('/').pop() || fileName;
           
-          // Find matching venue
-          const matchedVenue = findBestMatch(baseName, venues || []);
+          // Find matching venue - try extracted name first, then filename
+          let matchedVenue = extractedVenueName 
+            ? findBestMatch(extractedVenueName, venues || [])
+            : null;
+          
+          if (!matchedVenue) {
+            matchedVenue = findBestMatch(baseName, venues || []);
+          }
           
           if (matchedVenue) {
             stats.matched++;
@@ -168,6 +196,7 @@ export default function VenueMapUploader() {
               .upload(storagePath, new Blob([svgContent], { type: 'image/svg+xml' }), {
                 upsert: true
               });
+
 
             if (uploadError) {
               stats.errors++;
@@ -251,6 +280,22 @@ export default function VenueMapUploader() {
     }
   };
 
+  const loadExistingZip = async () => {
+    setIsProcessing(true);
+    try {
+      const response = await fetch('/temp/fixed_maps.zip');
+      if (!response.ok) {
+        throw new Error('Failed to load fixed_maps.zip from public folder');
+      }
+      const blob = await response.blob();
+      const file = new File([blob], 'fixed_maps.zip', { type: 'application/zip' });
+      await processZipFile(file);
+    } catch (error) {
+      console.error('Error loading existing zip:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to load zip file');
+      setIsProcessing(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -279,23 +324,33 @@ export default function VenueMapUploader() {
             onChange={handleFileChange}
             className="hidden"
           />
-          <Button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isProcessing}
-            size="lg"
-          >
-            {isProcessing ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              <>
-                <Upload className="mr-2 h-4 w-4" />
-                Select ZIP File
-              </>
-            )}
-          </Button>
+          <div className="flex flex-wrap gap-3">
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isProcessing}
+              size="lg"
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Select ZIP File
+                </>
+              )}
+            </Button>
+            <Button
+              onClick={loadExistingZip}
+              disabled={isProcessing}
+              size="lg"
+              variant="secondary"
+            >
+              Process fixed_maps.zip
+            </Button>
+          </div>
 
           {isProcessing && (
             <div className="mt-4">
