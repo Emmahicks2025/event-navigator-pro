@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { ZoomIn, ZoomOut, RotateCcw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface Section {
@@ -54,6 +54,11 @@ const extractSectionKey = (elementId: string): string | null => {
   return null;
 };
 
+// Check if the input is a URL
+const isUrl = (str: string): boolean => {
+  return str.startsWith('http://') || str.startsWith('https://') || str.startsWith('/');
+};
+
 export const DynamicVenueMap = ({
   svgMap,
   viewBox,
@@ -65,10 +70,35 @@ export const DynamicVenueMap = ({
 }: DynamicVenueMapProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
+  const [svgContent, setSvgContent] = useState<string>('');
+  const [loading, setLoading] = useState(false);
 
-  // Clean SVG content
-  const cleanSvgMap = useMemo(() => extractSvgContent(svgMap), [svgMap]);
-  const effectiveViewBox = viewBox || extractViewBox(cleanSvgMap);
+  // Fetch SVG content if it's a URL
+  useEffect(() => {
+    if (!svgMap) {
+      setSvgContent('');
+      return;
+    }
+
+    if (isUrl(svgMap)) {
+      setLoading(true);
+      fetch(svgMap)
+        .then(res => res.text())
+        .then(text => {
+          setSvgContent(extractSvgContent(text));
+          setLoading(false);
+        })
+        .catch(err => {
+          console.error('Failed to fetch SVG:', err);
+          setSvgContent('');
+          setLoading(false);
+        });
+    } else {
+      setSvgContent(extractSvgContent(svgMap));
+    }
+  }, [svgMap]);
+
+  const effectiveViewBox = viewBox || extractViewBox(svgContent);
 
   // Build mapping from svg_path to section/eventSection
   const sectionMapping = useMemo(() => {
@@ -98,7 +128,7 @@ export const DynamicVenueMap = ({
   // Setup SVG interactivity
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !cleanSvgMap) return;
+    if (!container || !svgContent) return;
 
     const svgElement = container.querySelector('svg');
     if (!svgElement) return;
@@ -243,7 +273,7 @@ export const DynamicVenueMap = ({
     return () => {
       cleanupFunctions.forEach(fn => fn());
     };
-  }, [cleanSvgMap, sectionMapping, selectedSectionId, onSectionClick, onSectionHover, effectiveViewBox]);
+  }, [svgContent, sectionMapping, selectedSectionId, onSectionClick, onSectionHover, effectiveViewBox]);
 
   const handleZoomIn = () => setZoom(z => Math.min(3, z + 0.25));
   const handleZoomOut = () => setZoom(z => Math.max(0.5, z - 0.25));
@@ -253,7 +283,15 @@ export const DynamicVenueMap = ({
   const availableCount = eventSections.filter(es => es.available_count > 0).length;
   const totalSections = sections.length;
 
-  if (!cleanSvgMap) {
+  if (loading) {
+    return (
+      <div className="bg-card rounded-lg border border-border p-8 flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!svgContent) {
     return (
       <div className="bg-card rounded-lg border border-border p-8 text-center text-muted-foreground">
         No venue map available
@@ -303,7 +341,7 @@ export const DynamicVenueMap = ({
             transform: `scale(${zoom})`,
             transformOrigin: 'center center',
           }}
-          dangerouslySetInnerHTML={{ __html: cleanSvgMap }}
+          dangerouslySetInnerHTML={{ __html: svgContent }}
         />
       </div>
     </div>
