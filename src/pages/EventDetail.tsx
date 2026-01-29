@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MapPin, Calendar, Clock, HelpCircle, Filter, X, Flame, Loader2 } from 'lucide-react';
 import { useEvent, useEventSections, useEventTickets } from '@/hooks/useEvents';
@@ -29,6 +29,13 @@ const EventDetail = () => {
   const [sortBy, setSortBy] = useState('price-low');
   const [ticketCount, setTicketCount] = useState(1);
   const [mapDebug, setMapDebug] = useState<MapClickDebugInfo | null>(null);
+
+  // Enable verbose click-resolution logs for this browser session (DEV only).
+  useEffect(() => {
+    if (import.meta.env.DEV) {
+      window.sessionStorage?.setItem('tixorbit_map_debug', '1');
+    }
+  }, []);
 
   // Fetch data from database
   const { data: dbEvent, isLoading: loadingEvent } = useEvent(id);
@@ -317,6 +324,7 @@ const EventDetail = () => {
                   onSectionHover={handleSectionHover}
                   ticketInventory={ticketInventoryMap}
                   onDebugEvent={(info) => setMapDebug(info)}
+                  debugLog
                 />
               )}
 
