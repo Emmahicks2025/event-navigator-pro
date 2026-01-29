@@ -378,36 +378,58 @@ export const DynamicVenueMap = ({
         else targetElement.classList.add('venue-section-unavailable');
       }
 
-      // Always bind click if section has tickets OR is selected
-      const bindClick = hasTickets || isSelected;
-      
+      // Always bind click handlers for matched sections - even if no tickets, clicking should still work
+      // (filtering to "no tickets in this section" is valid UX feedback)
       const onEnter = () => handleSectionHover(section, eventSection);
       const onLeave = () => handleSectionHover(null);
       const onClick = (e: Event) => {
         e.stopPropagation();
         e.preventDefault();
+        console.log('[VenueMap] Section clicked:', section.id, section.name);
         handleSectionClick(section.id, section, eventSection);
       };
 
-      if (bindClick) {
-        // For text labels, ALWAYS attach click to the text element itself
-        if (isTextLabel) {
-          sourceEl.addEventListener('click', onClick);
+      // Always bind click and hover for all matched sections
+      // For text labels, ensure pointer events work and attach click + hover
+      if (isTextLabel) {
+        (sourceEl as SVGElement).style.cursor = 'pointer';
+        (sourceEl as SVGElement).style.pointerEvents = 'all';
+        
+        // Also attach to parent group for larger click target
+        const textGroup = sourceEl.closest('g');
+        if (textGroup) {
+          (textGroup as SVGElement).style.cursor = 'pointer';
+          (textGroup as SVGElement).style.pointerEvents = 'all';
+          textGroup.addEventListener('mouseenter', onEnter);
+          textGroup.addEventListener('mouseleave', onLeave);
+          textGroup.addEventListener('click', onClick);
           cleanupRef.current.push(() => {
-            sourceEl.removeEventListener('click', onClick);
-          });
-        } else {
-          // For ID-based elements, attach to the group
-          groupEl.addEventListener('mouseenter', onEnter);
-          groupEl.addEventListener('mouseleave', onLeave);
-          groupEl.addEventListener('click', onClick);
-
-          cleanupRef.current.push(() => {
-            groupEl.removeEventListener('mouseenter', onEnter);
-            groupEl.removeEventListener('mouseleave', onLeave);
-            groupEl.removeEventListener('click', onClick);
+            textGroup.removeEventListener('mouseenter', onEnter);
+            textGroup.removeEventListener('mouseleave', onLeave);
+            textGroup.removeEventListener('click', onClick);
           });
         }
+        
+        // Also attach directly to text element for reliability
+        sourceEl.addEventListener('click', onClick);
+        sourceEl.addEventListener('mouseenter', onEnter);
+        sourceEl.addEventListener('mouseleave', onLeave);
+        cleanupRef.current.push(() => {
+          sourceEl.removeEventListener('click', onClick);
+          sourceEl.removeEventListener('mouseenter', onEnter);
+          sourceEl.removeEventListener('mouseleave', onLeave);
+        });
+      } else {
+        // For ID-based elements, attach to the group
+        groupEl.addEventListener('mouseenter', onEnter);
+        groupEl.addEventListener('mouseleave', onLeave);
+        groupEl.addEventListener('click', onClick);
+
+        cleanupRef.current.push(() => {
+          groupEl.removeEventListener('mouseenter', onEnter);
+          groupEl.removeEventListener('mouseleave', onLeave);
+          groupEl.removeEventListener('click', onClick);
+        });
       }
     };
 
@@ -434,11 +456,13 @@ export const DynamicVenueMap = ({
 
     // Strategy 2: text-label based processing (for SVGs without ids)
     // Note: We only run this for labels that map to a section. This is inexpensive and avoids flicker.
+    // IMPORTANT: Always process text labels for click binding even if the section was already styled via ID matching
     textElements.forEach((textEl) => {
       const label = (textEl.textContent || '').trim();
       if (!label) return;
 
       const key = `text:${normalizeName(label)}`;
+      // Skip only duplicate text labels, not sections already matched via ID
       if (processedElements.has(key)) return;
       processedElements.add(key);
 
@@ -459,6 +483,9 @@ export const DynamicVenueMap = ({
       }
       if (!matchData) return;
 
+      console.log('[VenueMap] Text label matched:', label, '->', matchData.section.name, 'hasTickets:', matchData.hasTickets);
+      
+      // Always bind interactivity for text labels - they need direct click handling
       bindInteractivity(textEl, matchData, true);
     });
 
