@@ -51,6 +51,7 @@ import SellRequestsList from "./pages/admin/SellRequestsList";
 import BulkUpload from "./pages/admin/BulkUpload";
 import EventsImport from "./pages/admin/EventsImport";
 import VenueMapUploader from "./pages/admin/VenueMapUploader";
+import SectionSync from "./pages/admin/SectionSync";
 
 const queryClient = new QueryClient();
 
@@ -86,6 +87,7 @@ const App = () => (
                 <Route path="bulk-upload" element={<BulkUpload />} />
                 <Route path="import-events" element={<EventsImport />} />
                 <Route path="venue-maps" element={<VenueMapUploader />} />
+                <Route path="section-sync" element={<SectionSync />} />
               </Route>
 
               {/* Auth */}

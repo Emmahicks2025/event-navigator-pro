@@ -42,21 +42,48 @@ const extractViewBox = (svgContent: string): string | null => {
   return viewBoxMatch ? viewBoxMatch[1] : null;
 };
 
-// Extract section number/id from various patterns
-const extractSectionKey = (elementId: string): string | null => {
-  // Match patterns like "101-group", "101-section", "A1-group", "Floor-group"
-  const groupMatch = elementId.match(/^(.+?)(?:-(?:group|section))$/i);
-  if (groupMatch) return groupMatch[1];
-  
-  // Match simple numeric IDs like "101", "102"
-  if (/^\d{1,3}$/.test(elementId)) return elementId;
-  
-  return null;
-};
-
 // Check if the input is a URL
 const isUrl = (str: string): boolean => {
   return str.startsWith('http://') || str.startsWith('https://') || str.startsWith('/');
+};
+
+// Normalize a name for fuzzy matching
+const normalizeName = (name: string): string => {
+  return name
+    .toLowerCase()
+    .replace(/[-_\s]+/g, '')
+    .replace(/section/gi, '')
+    .replace(/group/gi, '')
+    .replace(/level/gi, '')
+    .replace(/tier/gi, '')
+    .replace(/bowl/gi, '')
+    .trim();
+};
+
+// Extract potential section identifiers from an element ID
+const extractIdentifiers = (elementId: string): string[] => {
+  const identifiers: string[] = [];
+  const lowerElementId = elementId.toLowerCase();
+  
+  // Original ID
+  identifiers.push(lowerElementId);
+  
+  // Without -group or -section suffix
+  const withoutSuffix = lowerElementId.replace(/[-_](group|section|path)$/i, '');
+  if (withoutSuffix !== lowerElementId) {
+    identifiers.push(withoutSuffix);
+  }
+  
+  // Normalized version
+  identifiers.push(normalizeName(elementId));
+  
+  // Extract numeric part if present (e.g., "101" from "section-101-group")
+  const numericMatch = elementId.match(/(\d{1,3})/);
+  if (numericMatch) {
+    identifiers.push(numericMatch[1]);
+  }
+  
+  return [...new Set(identifiers)];
 };
 
 export const DynamicVenueMap = ({
@@ -100,26 +127,38 @@ export const DynamicVenueMap = ({
 
   const effectiveViewBox = viewBox || extractViewBox(svgContent);
 
-  // Build mapping from svg_path to section/eventSection
+  // Build comprehensive mapping for section matching
   const sectionMapping = useMemo(() => {
     const mapping = new Map<string, { section: Section; eventSection?: EventSection; hasTickets: boolean }>();
     
     sections.forEach(section => {
-      if (!section.svg_path) return;
-      
       const eventSection = eventSections.find(es => es.section_id === section.id);
       const hasTickets = eventSection ? eventSection.available_count > 0 : false;
+      const data = { section, eventSection, hasTickets };
       
-      // Map both the full svg_path and extracted key
-      mapping.set(section.svg_path.toLowerCase(), { section, eventSection, hasTickets });
-      
-      // Also map without -group/-section suffix
-      const key = extractSectionKey(section.svg_path);
-      if (key) {
-        mapping.set(key.toLowerCase(), { section, eventSection, hasTickets });
-        mapping.set(`${key}-group`.toLowerCase(), { section, eventSection, hasTickets });
-        mapping.set(`${key}-section`.toLowerCase(), { section, eventSection, hasTickets });
+      // Map by svg_path if present
+      if (section.svg_path) {
+        const svgPathLower = section.svg_path.toLowerCase();
+        mapping.set(svgPathLower, data);
+        mapping.set(`${svgPathLower}-group`, data);
+        mapping.set(`${svgPathLower}-section`, data);
+        
+        // Also add normalized version
+        mapping.set(normalizeName(section.svg_path), data);
       }
+      
+      // Map by section name (for fallback matching)
+      const normalizedName = normalizeName(section.name);
+      if (!mapping.has(normalizedName)) {
+        mapping.set(normalizedName, data);
+      }
+      
+      // Also map common variations of the section name
+      const nameLower = section.name.toLowerCase();
+      mapping.set(nameLower, data);
+      mapping.set(nameLower.replace(/\s+/g, '-'), data);
+      mapping.set(nameLower.replace(/\s+/g, '_'), data);
+      mapping.set(nameLower.replace(/\s+/g, ''), data);
     });
     
     return mapping;
@@ -149,35 +188,52 @@ export const DynamicVenueMap = ({
     const allElements = svgElement.querySelectorAll('[id]');
     const cleanupFunctions: (() => void)[] = [];
     const processedElements = new Set<string>();
+    
+    // Track which sections we've matched to avoid duplicates
+    const matchedSectionIds = new Set<string>();
 
     allElements.forEach((element) => {
       const elementId = element.getAttribute('id') || '';
       const lowerElementId = elementId.toLowerCase();
       
-      // Skip if already processed or not a section-like ID
+      // Skip if already processed
       if (processedElements.has(lowerElementId)) return;
       
-      // Try to find matching section data
-      let matchData = sectionMapping.get(lowerElementId);
+      // Skip common non-section elements
+      const skipPatterns = [
+        /^svg$/i, /^defs$/i, /^clip/i, /^mask/i, /^gradient/i, /^pattern/i,
+        /^filter/i, /^g\d*$/i, /^layer/i, /^path\d*$/i, /^rect\d*$/i,
+        /^text\d*$/i, /^tspan/i, /^use\d*$/i, /^symbol/i, /^image/i,
+        /^style/i, /^metadata/i, /^namedview/i, /^sodipodi/i, /^stage/i,
+        /^background/i, /^border/i, /^outline/i,
+      ];
       
-      // If no direct match, try extracting the key
-      if (!matchData) {
-        const key = extractSectionKey(elementId);
-        if (key) {
-          matchData = sectionMapping.get(key.toLowerCase());
-        }
+      if (skipPatterns.some(pattern => pattern.test(elementId))) return;
+      
+      // Try to find matching section data using multiple strategies
+      let matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean } | undefined;
+      
+      const identifiers = extractIdentifiers(elementId);
+      for (const id of identifiers) {
+        matchData = sectionMapping.get(id);
+        if (matchData) break;
       }
-
+      
+      // If no match found, skip this element
       if (!matchData) return;
+      
+      // Avoid duplicate processing of the same section
+      if (matchedSectionIds.has(matchData.section.id)) return;
+      matchedSectionIds.add(matchData.section.id);
       
       processedElements.add(lowerElementId);
 
       const { section, eventSection, hasTickets } = matchData;
       const isSelected = selectedSectionId === section.id;
 
-      // Find the path/shape element to style (might be inside a group)
+      // Find the target element to style (might be inside a group)
       let targetElement = element;
-      const innerPath = element.querySelector('.section-path, [id$="-section"], path, polygon');
+      const innerPath = element.querySelector('path, polygon, rect, circle, ellipse');
       if (innerPath && element.tagName.toLowerCase() === 'g') {
         targetElement = innerPath;
       }
@@ -279,10 +335,6 @@ export const DynamicVenueMap = ({
   const handleZoomOut = () => setZoom(z => Math.max(0.5, z - 0.25));
   const handleReset = () => setZoom(1);
 
-  // Calculate stats for legend
-  const availableCount = eventSections.filter(es => es.available_count > 0).length;
-  const totalSections = sections.length;
-
   if (loading) {
     return (
       <div className="bg-card rounded-lg border border-border p-8 flex items-center justify-center">
@@ -305,7 +357,7 @@ export const DynamicVenueMap = ({
       <div className="absolute top-2 left-2 z-10 flex gap-3 bg-card/90 backdrop-blur rounded-lg px-3 py-2 border border-border text-xs">
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-sm bg-blue-500" />
-          <span className="text-muted-foreground">Available</span>
+          <span className="text-muted-foreground">Available ({eventSections.filter(es => es.available_count > 0).length})</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-sm bg-gray-500 opacity-40" />

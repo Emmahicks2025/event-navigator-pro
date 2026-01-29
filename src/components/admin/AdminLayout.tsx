@@ -16,7 +16,8 @@ import {
   Package,
   HandCoins,
   Upload,
-  Map
+  Map,
+  RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -33,6 +34,7 @@ const navItems = [
   { path: '/admin/bulk-upload', label: 'Bulk Upload', icon: Upload },
   { path: '/admin/import-events', label: 'Import Events', icon: Upload },
   { path: '/admin/venue-maps', label: 'Venue Maps', icon: Map },
+  { path: '/admin/section-sync', label: 'Section Sync', icon: RefreshCw },
   { path: '/admin/orders', label: 'Orders', icon: Ticket },
   { path: '/admin/sell-requests', label: 'Sell Requests', icon: HandCoins },
   { path: '/admin/featured', label: 'Featured', icon: Star },
