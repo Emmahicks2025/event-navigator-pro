@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback, forwardRef, type MutableRefObject } from 'react';
 import { ZoomIn, ZoomOut, RotateCcw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -171,22 +171,34 @@ const ensureStyles = () => {
   document.head.appendChild(styleEl);
 };
 
-export const DynamicVenueMap = ({
-  svgMap,
-  viewBox,
-  sections,
-  eventSections,
-  selectedSectionId,
-  onSectionClick,
-  onSectionHover,
-  ticketInventory,
-  onDebugEvent,
-  debugLog,
-}: DynamicVenueMapProps) => {
+export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(function DynamicVenueMap(
+  {
+    svgMap,
+    viewBox,
+    sections,
+    eventSections,
+    selectedSectionId,
+    onSectionClick,
+    onSectionHover,
+    ticketInventory,
+    onDebugEvent,
+    debugLog,
+  }: DynamicVenueMapProps,
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgHostRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void)[]>([]);
   const processedRef = useRef<string>('');
+
+  const setRootRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (!ref) return;
+      if (typeof ref === 'function') ref(node);
+      else (ref as MutableRefObject<HTMLDivElement | null>).current = node;
+    },
+    [ref],
+  );
   
   const [zoom, setZoom] = useState(1);
   const [svgContent, setSvgContent] = useState<string>('');
@@ -755,7 +767,7 @@ export const DynamicVenueMap = ({
   }
 
   return (
-    <div className="relative h-full flex flex-col gap-2">
+    <div ref={setRootRef} className="relative h-full flex flex-col gap-2">
       {/* Legend */}
       <div className="absolute top-2 left-2 z-10 flex gap-3 bg-card/90 backdrop-blur rounded-lg px-3 py-2 border border-border text-xs">
         <div className="flex items-center gap-1.5">
@@ -802,6 +814,6 @@ export const DynamicVenueMap = ({
       </div>
     </div>
   );
-};
+});
 
 export default DynamicVenueMap;
