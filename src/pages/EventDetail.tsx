@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { MapPin, Calendar, Clock, HelpCircle, Filter, X, Flame, Loader2 } from 'lucide-react';
 import { useEvent, useEventSections, useEventTickets } from '@/hooks/useEvents';
 import { DynamicVenueMap } from '@/components/DynamicVenueMap';
-import { TicketListing, TicketListingItem } from '@/components/TicketListing';
+import { VirtualizedTicketList, TicketListingItem } from '@/components/VirtualizedTicketList';
 import { useCart } from '@/context/CartContext';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -272,9 +272,10 @@ const EventDetail = () => {
                 ))}
               </div>
             ) : sortedListings.length > 0 ? (
-              <TicketListing 
+              <VirtualizedTicketList 
                 listings={sortedListings}
                 onSelect={handleSelectListing}
+                pageSize={15}
               />
             ) : (
               <div className="text-center py-12 bg-card rounded-lg border border-border">
