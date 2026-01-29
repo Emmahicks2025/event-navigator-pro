@@ -392,6 +392,7 @@ export const DynamicVenueMap = ({
       // Always bind click and hover for all matched sections
       // For text labels, ensure pointer events work and attach click + hover
       if (isTextLabel) {
+        console.log('[VenueMap] Binding click to text label:', section.name);
         (sourceEl as SVGElement).style.cursor = 'pointer';
         (sourceEl as SVGElement).style.pointerEvents = 'all';
         
@@ -434,6 +435,9 @@ export const DynamicVenueMap = ({
     };
 
     // Strategy 1: ID-based processing
+    // Strategy 1: ID-based processing
+    console.log('[VenueMap] Processing', idElements.length, 'ID elements,', textElements.length, 'text elements');
+    
     idElements.forEach((element) => {
       const elementId = element.getAttribute('id') || '';
       const lowerElementId = elementId.toLowerCase();
@@ -444,13 +448,24 @@ export const DynamicVenueMap = ({
 
       let matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean } | undefined;
       const identifiers = extractIdentifiers(elementId);
+      
+      // Also try direct section number extraction (e.g., "203" from "section-203-path" or "g203")
+      const allDigits = elementId.match(/\d+/g);
+      if (allDigits) {
+        identifiers.push(...allDigits);
+      }
+      
       for (const id of identifiers) {
         matchData = sectionMapping.get(id);
-        if (matchData) break;
+        if (matchData) {
+          console.log('[VenueMap] ID matched:', elementId, '->', matchData.section.name);
+          break;
+        }
       }
 
       if (!matchData) return;
       processedElements.add(lowerElementId);
+      matchedSectionIds.add(matchData.section.id); // Mark section as matched via ID
       bindInteractivity(element, matchData, false);
     });
 
