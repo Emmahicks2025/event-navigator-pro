@@ -6,9 +6,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Extract section IDs from SVG content - only pick meaningful sections
-function extractSectionIds(svgContent: string): string[] {
-  const sectionIds: string[] = [];
+// Extract ALL meaningful section IDs from SVG content
+function extractSectionIds(svgContent: string): { id: string; normalized: string }[] {
+  const sections: { id: string; normalized: string }[] = [];
+  const seenNormalized = new Set<string>();
   
   // Match all id attributes in the SVG
   const idMatches = svgContent.matchAll(/\bid=["']([^"']+)["']/gi);
@@ -22,26 +23,41 @@ function extractSectionIds(svgContent: string): string[] {
       /^filter/i, /^g\d*$/i, /^layer/i, /^path\d*$/i, /^rect\d*$/i,
       /^text\d*$/i, /^tspan/i, /^use\d*$/i, /^symbol/i, /^image/i,
       /^style/i, /^metadata/i, /^namedview/i, /^sodipodi/i, /^parent/i,
-      /^sections$/i, /^background/i, /^stage/i, /^court/i, /^field/i,
-      /^ice/i, /^arena/i, /^border/i, /^outline/i,
+      /^sections$/i, /^background$/i, /^stage$/i, /^court$/i, /^field$/i,
+      /^ice$/i, /^arena$/i, /^border$/i, /^outline$/i, /^floor$/i,
     ];
     
     if (skipPatterns.some(pattern => pattern.test(id))) continue;
     
-    // Only include -group IDs (they contain the sections)
-    // This avoids duplicates like "101", "101-group", "101-section"
-    if (id.endsWith('-group')) {
-      const sectionKey = id.replace(/-group$/i, '');
-      // Include numeric sections (101, 102), alphanumeric (A1, L4, F25), and named sections
-      if (/^\d{1,3}$/.test(sectionKey) ||
-          /^[A-Z]\d{0,2}$/i.test(sectionKey) ||
-          /^(floor|pit|ga|vip|club|premium|box|suite|terrace|orchestra|mezzanine|balcony|loge)/i.test(sectionKey)) {
-        sectionIds.push(id);
-      }
+    // Normalize the ID for matching purposes
+    const normalized = id.toLowerCase()
+      .replace(/[-_](group|section|path|area|zone)$/i, '')
+      .replace(/[-_\s]+/g, '')
+      .trim();
+    
+    // Skip if we've already processed an element with this normalized ID
+    if (seenNormalized.has(normalized)) continue;
+    
+    // Include various section patterns:
+    // - Numeric: 101, 102, 1, 2, 3
+    // - Alphanumeric: A1, L4, F25, SEC101
+    // - Named: floor1, pit, vip, club, orchestra, mezzanine, balcony
+    // - Group IDs: 101-group, section-a1-group
+    const sectionPatterns = [
+      /^\d{1,3}$/,                                           // Pure numeric
+      /^[a-z]\d{1,3}$/i,                                     // Letter+number (A1, F25)
+      /^sec\d{1,3}$/i,                                       // sec101
+      /^section\d{1,3}$/i,                                   // section101
+      /^(floor|pit|ga|vip|club|premium|box|suite|terrace|orchestra|mezzanine|balcony|loge|upper|lower|main)/i,
+    ];
+    
+    if (sectionPatterns.some(pattern => pattern.test(normalized))) {
+      seenNormalized.add(normalized);
+      sections.push({ id, normalized });
     }
   }
   
-  return [...new Set(sectionIds)];
+  return sections;
 }
 
 // Categorize section by its ID pattern
@@ -146,20 +162,20 @@ serve(async (req) => {
 
         if (hasDetailedSections && (replace_sections || hasOnlyGenericSections)) {
           // Create new sections from SVG
-          for (const svgId of svgSectionIds) {
-            const sectionName = generateSectionName(svgId);
-            const sectionType = categorizeSectionType(svgId);
+          for (const svgEntry of svgSectionIds) {
+            const sectionName = generateSectionName(svgEntry.id);
+            const sectionType = categorizeSectionType(svgEntry.id);
             
             // Check if a section with this svg_path already exists
             const existing = existingSections?.find(s => 
-              s.svg_path?.toLowerCase() === svgId.toLowerCase()
+              s.svg_path?.toLowerCase() === svgEntry.id.toLowerCase()
             );
             
             if (!existing) {
               newSections.push({
                 venue_id: venue.id,
                 name: sectionName,
-                svg_path: svgId,
+                svg_path: svgEntry.id,
                 section_type: sectionType,
                 capacity: 100,
               });
@@ -170,17 +186,25 @@ serve(async (req) => {
           for (const section of existingSections || []) {
             if (section.svg_path) continue; // Already linked
             
-            // Try to find a matching SVG ID
-            const normalizedName = section.name.toLowerCase().replace(/\s+/g, '');
-            const matchingSvgId = svgSectionIds.find(svgId => {
-              const normalizedSvgId = svgId.toLowerCase().replace(/-group$/i, '');
-              return normalizedSvgId === normalizedName || 
-                     normalizedSvgId.includes(normalizedName) ||
-                     normalizedName.includes(normalizedSvgId);
+            // Normalize the section name for matching
+            const normalizedName = section.name.toLowerCase()
+              .replace(/\s+/g, '')
+              .replace(/section/gi, '');
+            
+            // Try to find a matching SVG ID using multiple strategies
+            const matchingSvgEntry = svgSectionIds.find(svgEntry => {
+              // Direct match
+              if (svgEntry.normalized === normalizedName) return true;
+              
+              // Partial match
+              if (svgEntry.normalized.includes(normalizedName) || 
+                  normalizedName.includes(svgEntry.normalized)) return true;
+              
+              return false;
             });
             
-            if (matchingSvgId) {
-              updates.push({ id: section.id, svg_path: matchingSvgId });
+            if (matchingSvgEntry) {
+              updates.push({ id: section.id, svg_path: matchingSvgEntry.id });
             }
           }
         }
