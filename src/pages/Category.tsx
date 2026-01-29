@@ -164,9 +164,6 @@ const Category = () => {
               {categoryIcon} {categoryName}
             </h1>
             <div className="flex items-center gap-3 mt-1">
-              <p className="text-muted-foreground">
-                {isLoading ? 'Loading...' : `${sortedEvents.length} events found`}
-              </p>
               {userLocation && !loadingLocation && (
                 <div className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded-full">
                   <MapPin size={12} />
