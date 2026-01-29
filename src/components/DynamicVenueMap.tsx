@@ -118,7 +118,7 @@ const extractIdentifiers = (elementId: string): string[] => {
   return [...new Set(identifiers)];
 };
 
-// Inject global styles once
+// Inject global styles once (use design tokens; no hard-coded colors)
 const STYLE_ID = 'dynamic-venue-map-styles';
 const ensureStyles = () => {
   if (document.getElementById(STYLE_ID)) return;
@@ -127,31 +127,31 @@ const ensureStyles = () => {
   styleEl.id = STYLE_ID;
   styleEl.textContent = `
     .venue-section-available {
-      fill: #3b82f6 !important;
+      fill: hsl(var(--primary)) !important;
       fill-opacity: 0.65 !important;
-      stroke: #1d4ed8 !important;
+      stroke: hsl(var(--ring)) !important;
       stroke-width: 1.5px !important;
       transition: fill 0.1s ease, fill-opacity 0.1s ease, stroke-width 0.1s ease;
       cursor: pointer;
     }
     .venue-section-unavailable {
-      fill: #6b7280 !important;
+      fill: hsl(var(--muted)) !important;
       fill-opacity: 0.3 !important;
-      stroke: #4b5563 !important;
+      stroke: hsl(var(--border)) !important;
       stroke-width: 0.5px !important;
       cursor: not-allowed;
       pointer-events: none;
     }
     .venue-section-selected {
-      fill: #1d4ed8 !important;
+      fill: hsl(var(--primary)) !important;
       fill-opacity: 0.9 !important;
-      stroke: #1e40af !important;
+      stroke: hsl(var(--primary)) !important;
       stroke-width: 3px !important;
       cursor: pointer;
     }
     .venue-section-available:hover,
     .venue-section-selected:hover {
-      fill: #2563eb !important;
+      fill: hsl(var(--accent)) !important;
       fill-opacity: 0.85 !important;
       stroke-width: 2.5px !important;
     }
@@ -170,6 +170,7 @@ export const DynamicVenueMap = ({
   ticketInventory,
 }: DynamicVenueMapProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const svgHostRef = useRef<HTMLDivElement>(null);
   const cleanupRef = useRef<(() => void)[]>([]);
   const processedRef = useRef<string>('');
   
@@ -203,6 +204,13 @@ export const DynamicVenueMap = ({
   }, [svgMap]);
 
   const effectiveViewBox = viewBox || extractViewBox(svgContent);
+
+  // Prevent flicker: only (re)inject SVG markup when svgContent changes
+  useEffect(() => {
+    const host = svgHostRef.current;
+    if (!host) return;
+    host.innerHTML = svgContent || '';
+  }, [svgContent]);
   
   // Build comprehensive section mapping (inventory-driven availability)
   const sectionMapping = useMemo(() => {
@@ -258,15 +266,16 @@ export const DynamicVenueMap = ({
   // Setup SVG interactivity - only when svgContent changes or selectedSectionId changes
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !svgContent) return;
+    const host = svgHostRef.current;
+    if (!container || !host || !svgContent) return;
 
     ensureStyles();
 
-    const svgElement = container.querySelector('svg');
+    const svgElement = host.querySelector('svg');
     if (!svgElement) return;
 
     // Create a signature for this processing to prevent duplicate work
-    const processingSignature = `${svgContent.slice(0, 100)}-${selectedSectionId}-${sections.length}`;
+    const processingSignature = `${effectiveViewBox || 'novb'}-${selectedSectionId}-${sections.length}-${eventSections.length}-${ticketInventory ? 'inv' : 'es'}`;
     if (processedRef.current === processingSignature) return;
     processedRef.current = processingSignature;
 
@@ -442,8 +451,9 @@ export const DynamicVenueMap = ({
             transform: `scale(${zoom})`,
             transformOrigin: 'center center',
           }}
-          dangerouslySetInnerHTML={{ __html: svgContent }}
-        />
+        >
+          <div ref={svgHostRef} className="w-full h-full" />
+        </div>
       </div>
     </div>
   );
