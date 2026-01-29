@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.link-event-sections]
 verify_jwt = false
+
+[functions.bulk-add-inventory]
+verify_jwt = false
