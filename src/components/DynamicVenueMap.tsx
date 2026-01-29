@@ -390,15 +390,9 @@ export const DynamicVenueMap = ({
       // (filtering to "no tickets in this section" is valid UX feedback)
       const onEnter = () => handleSectionHover(section, eventSection);
       const onLeave = () => handleSectionHover(null);
-      const onClick = (e: Event) => {
-        e.stopPropagation();
-        e.preventDefault();
-        console.log('[DynamicVenueMap] click', { sectionId: section.id, name: section.name });
-        handleSectionClick(section.id, section, eventSection);
-      };
 
-      // Always bind click and hover for all matched sections
-      // For text labels, ensure pointer events work and attach click + hover
+      // Bind hover for matched sections. Click is handled centrally via delegated handler
+      // (prevents double-trigger toggling).
       if (isTextLabel) {
         (sourceEl as SVGElement).style.cursor = 'pointer';
         (sourceEl as SVGElement).style.pointerEvents = 'all';
@@ -410,33 +404,26 @@ export const DynamicVenueMap = ({
           (textGroup as SVGElement).style.pointerEvents = 'all';
           textGroup.addEventListener('mouseenter', onEnter);
           textGroup.addEventListener('mouseleave', onLeave);
-          textGroup.addEventListener('click', onClick);
           cleanupRef.current.push(() => {
             textGroup.removeEventListener('mouseenter', onEnter);
             textGroup.removeEventListener('mouseleave', onLeave);
-            textGroup.removeEventListener('click', onClick);
           });
         }
         
-        // Also attach directly to text element for reliability
-        sourceEl.addEventListener('click', onClick);
         sourceEl.addEventListener('mouseenter', onEnter);
         sourceEl.addEventListener('mouseleave', onLeave);
         cleanupRef.current.push(() => {
-          sourceEl.removeEventListener('click', onClick);
           sourceEl.removeEventListener('mouseenter', onEnter);
           sourceEl.removeEventListener('mouseleave', onLeave);
         });
       } else {
-        // For ID-based elements, attach to the group
+        // For ID-based elements, attach hover to the group
         groupEl.addEventListener('mouseenter', onEnter);
         groupEl.addEventListener('mouseleave', onLeave);
-        groupEl.addEventListener('click', onClick);
 
         cleanupRef.current.push(() => {
           groupEl.removeEventListener('mouseenter', onEnter);
           groupEl.removeEventListener('mouseleave', onLeave);
-          groupEl.removeEventListener('click', onClick);
         });
       }
     };
@@ -508,11 +495,12 @@ export const DynamicVenueMap = ({
       bindInteractivity(textEl, matchData, true);
     });
 
-    // Fallback: delegated click handler.
-    // Some SVG exports (and some sanitizers/transforms) make element-level listeners unreliable,
-    // or clicks may not land on SVG nodes (pointer-events quirks). We attach to BOTH the SVG
-    // element and the host container in capture phase.
+    // Delegated click handler (single source of truth).
+    // Prevents double-trigger toggling when multiple listeners exist in the SVG tree.
     const delegatedClick = (e: Event) => {
+      if ((e as any).__tixorbitHandled) return;
+      (e as any).__tixorbitHandled = true;
+
       const target = e.target as Element | null;
       if (!target) return;
 
@@ -552,10 +540,6 @@ export const DynamicVenueMap = ({
     };
     svgElement.addEventListener('click', delegatedClick, true);
     cleanupRef.current.push(() => svgElement.removeEventListener('click', delegatedClick, true));
-
-    // Also attach to host wrapper so clicks still work if the SVG blocks events internally.
-    host.addEventListener('click', delegatedClick, true);
-    cleanupRef.current.push(() => host.removeEventListener('click', delegatedClick, true));
 
     return () => {
       cleanupRef.current.forEach(fn => fn());
