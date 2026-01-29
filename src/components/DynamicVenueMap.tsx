@@ -75,6 +75,12 @@ const sanitizeSvg = (rawSvg: string): string => {
   
   // Remove style tags with @import or external references
   svg = svg.replace(/<style[^>]*>[\s\S]*?@import[\s\S]*?<\/style>/gi, '');
+
+  // Some venue exports include CSS/attrs that disable all interaction.
+  // Force-enable pointer events so our delegated handlers can work.
+  svg = svg.replace(/pointer-events\s*:\s*none\s*;?/gi, 'pointer-events:all;');
+  svg = svg.replace(/pointer-events\s*=\s*"none"/gi, 'pointer-events="all"');
+  svg = svg.replace(/pointer-events\s*=\s*'none'/gi, "pointer-events='all'");
   
   // Clean up empty attributes and excessive whitespace
   svg = svg.replace(/\s{2,}/g, ' ');
@@ -374,6 +380,12 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
         if (txt.length > 40) return false;
         return true;
       });
+
+    // Some exports set pointer-events:none on text labels; force-enable so clicks can be resolved.
+    textElements.forEach((el) => {
+      (el as unknown as SVGElement).style.pointerEvents = 'all';
+      (el as unknown as SVGElement).style.cursor = 'pointer';
+    });
 
     const processedElements = new Set<string>();
     const matchedSectionIds = new Set<string>();
@@ -705,7 +717,7 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
       });
     }
 
-    // Delegated click handler (single source of truth).
+    // Delegated handler (single source of truth).
     // Prevents double-trigger toggling when multiple listeners exist in the SVG tree.
     const delegatedClick = (e: Event) => {
       if ((e as any).__tixorbitHandled) return;
@@ -722,8 +734,12 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
       };
 
       // Find the most relevant element to identify a section
-      const textEl = target.closest('text');
-      const labeled = textEl?.textContent?.trim();
+      // Prefer composedPath so we can still find the underlying <text> when pointer-events
+      // makes the event target something else (e.g., the <svg> root).
+      const path = (e as any).composedPath?.() as Element[] | undefined;
+      const pathTextEl = path?.find((n) => (n as any)?.tagName?.toLowerCase?.() === 'text') as Element | undefined;
+      const textEl = (pathTextEl || target.closest('text')) as Element | null;
+      const labeled = (textEl as any)?.textContent?.trim?.();
 
       const shouldLog =
         !!debugLog &&
@@ -864,13 +880,16 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
         console.warn('[MapDebug] no match found', { candidateCount: uniq.length });
       }
     };
-    svgElement.addEventListener('click', delegatedClick, true);
-    cleanupRef.current.push(() => svgElement.removeEventListener('click', delegatedClick, true));
+    // Some exported SVGs cancel/never emit 'click' reliably (e.g. drag/zoom libs, pointer-event quirks).
+    // Bind to pointer/mouse down in capture phase so we always see the interaction.
+    const events: Array<keyof GlobalEventHandlersEventMap> = ['pointerdown', 'mousedown', 'click'];
+    events.forEach((evt) => svgElement.addEventListener(evt, delegatedClick, true));
+    cleanupRef.current.push(() => events.forEach((evt) => svgElement.removeEventListener(evt, delegatedClick, true)));
 
     // Also attach to the host wrapper so clicks still register when SVG internals
     // swallow events (common with some exported venue maps).
-    host.addEventListener('click', delegatedClick, true);
-    cleanupRef.current.push(() => host.removeEventListener('click', delegatedClick, true));
+    events.forEach((evt) => host.addEventListener(evt, delegatedClick, true));
+    cleanupRef.current.push(() => events.forEach((evt) => host.removeEventListener(evt, delegatedClick, true)));
 
     return () => {
       cleanupRef.current.forEach(fn => fn());
@@ -881,6 +900,23 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
   const handleZoomIn = useCallback(() => setZoom(z => Math.min(3, z + 0.25)), []);
   const handleZoomOut = useCallback(() => setZoom(z => Math.max(0.5, z - 0.25)), []);
   const handleReset = useCallback(() => setZoom(1), []);
+
+  // Debug hook: verify pointer events reach the wrapper even if SVG swallows native listeners.
+  const handleHostPointerDownCapture = useCallback(
+    (e: any) => {
+      onDebugEvent?.({
+        at: new Date().toISOString(),
+        targetTag: e?.target?.tagName,
+        targetId: e?.target?.getAttribute?.('id') ?? null,
+        closestId: e?.target?.closest?.('[id]')?.getAttribute?.('id') ?? null,
+        labelText: e?.target?.closest?.('text')?.textContent?.trim?.() ?? null,
+        resolvedSectionId: null,
+        resolutionPath: 'none',
+        candidateCount: 0,
+      });
+    },
+    [onDebugEvent]
+  );
 
   // Count available sections from inventory
   const availableCount = useMemo(() => {
@@ -942,14 +978,18 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
         style={{ aspectRatio: '1 / 1' }}
       >
         <div
-          ref={containerRef}
+            ref={containerRef}
           className="w-full h-full flex items-center justify-center p-2 will-change-transform"
           style={{ 
             transform: `scale(${zoom})`,
             transformOrigin: 'center center',
           }}
         >
-          <div ref={svgHostRef} className="w-full h-full" />
+            <div
+              ref={svgHostRef}
+              className="w-full h-full"
+              onPointerDownCapture={handleHostPointerDownCapture}
+            />
         </div>
       </div>
     </div>
