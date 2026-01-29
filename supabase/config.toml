@@ -1,1 +1,28 @@
 project_id = "lekhplpwdqtmbjmoqzyd"
+
+[functions.detect-venue-from-svg]
+verify_jwt = false
+
+[functions.import-events-with-maps]
+verify_jwt = false
+
+[functions.parse-svg-sections]
+verify_jwt = false
+
+[functions.populate-inventory]
+verify_jwt = false
+
+[functions.process-uploaded-data]
+verify_jwt = false
+
+[functions.process-venue-maps]
+verify_jwt = false
+
+[functions.seed-events-data]
+verify_jwt = false
+
+[functions.update-performer-images]
+verify_jwt = false
+
+[functions.fetch-venue-maps]
+verify_jwt = false
