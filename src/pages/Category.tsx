@@ -1,14 +1,16 @@
 import { useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
-import { Filter, SortAsc, X } from 'lucide-react';
+import { Filter, SortAsc, X, MapPin } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { useEventsByCategory } from '@/hooks/useEvents';
 import { useCategory } from '@/hooks/useCategories';
+import { useUserLocation, getDistanceToCity } from '@/hooks/useUserLocation';
 import { EventCard } from '@/components/EventCard';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+
 // FIFA World Cup 2026 participating countries
 const FIFA_COUNTRIES = [
   'USA', 'Mexico', 'Canada', // Host nations
@@ -34,13 +36,14 @@ function extractCountriesFromTitle(title: string): string[] {
 
 const Category = () => {
   const { slug } = useParams();
-  const [sortBy, setSortBy] = useState<'date' | 'price'>('date');
+  const [sortBy, setSortBy] = useState<'date' | 'price' | 'distance'>('distance');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [selectedCity, setSelectedCity] = useState<string>('');
 
   const { data: category } = useCategory(slug);
   const { data: events = [], isLoading } = useEventsByCategory(slug || '');
+  const { data: userLocation, isLoading: loadingLocation } = useUserLocation();
 
   // Fetch unique cities from events
   const { data: availableCities = [] } = useQuery({
@@ -93,8 +96,24 @@ const Category = () => {
     setSelectedCountries([]);
   };
 
+  // Pre-calculate distances for all events
+  const eventsWithDistance = useMemo(() => {
+    if (!userLocation?.latitude || !userLocation?.longitude) {
+      return events.map(event => ({ ...event, distance: null }));
+    }
+    
+    return events.map(event => {
+      const distance = getDistanceToCity(
+        userLocation.latitude,
+        userLocation.longitude,
+        event.city
+      );
+      return { ...event, distance };
+    });
+  }, [events, userLocation]);
+
   const sortedEvents = useMemo(() => {
-    let filtered = [...events];
+    let filtered = [...eventsWithDistance];
 
     // Filter by selected countries for FIFA World Cup
     if (isFifaWorldCup && selectedCountries.length > 0) {
@@ -112,7 +131,19 @@ const Category = () => {
     // Sort
     if (sortBy === 'price') {
       filtered = filtered.sort((a, b) => a.priceFrom - b.priceFrom);
+    } else if (sortBy === 'distance' && userLocation) {
+      // Sort by distance first (closest first), then by date for same distance
+      filtered = filtered.sort((a, b) => {
+        const distA = a.distance ?? 10000;
+        const distB = b.distance ?? 10000;
+        if (distA !== distB) return distA - distB;
+        // Secondary sort by date
+        if (a.date === 'TBD') return 1;
+        if (b.date === 'TBD') return -1;
+        return new Date(a.date).getTime() - new Date(b.date).getTime();
+      });
     } else {
+      // Default to date sort
       filtered = filtered.sort((a, b) => {
         if (a.date === 'TBD') return 1;
         if (b.date === 'TBD') return -1;
@@ -121,7 +152,7 @@ const Category = () => {
     }
 
     return filtered;
-  }, [events, sortBy, selectedCountries, isFifaWorldCup, selectedCity]);
+  }, [eventsWithDistance, sortBy, selectedCountries, isFifaWorldCup, selectedCity, userLocation]);
 
   return (
     <main className="pt-32 min-h-screen">
@@ -132,12 +163,20 @@ const Category = () => {
             <h1 className="text-3xl font-bold text-foreground">
               {categoryIcon} {categoryName}
             </h1>
-            <p className="text-muted-foreground mt-1">
-              {isLoading ? 'Loading...' : `${sortedEvents.length} events found`}
-            </p>
+            <div className="flex items-center gap-3 mt-1">
+              <p className="text-muted-foreground">
+                {isLoading ? 'Loading...' : `${sortedEvents.length} events found`}
+              </p>
+              {userLocation && !loadingLocation && (
+                <div className="flex items-center gap-1 text-xs text-primary bg-primary/10 px-2 py-1 rounded-full">
+                  <MapPin size={12} />
+                  <span>Near {userLocation.city}</span>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex gap-2 flex-wrap">
             <Button
               variant="outline"
               onClick={() => setShowFilters(!showFilters)}
@@ -151,14 +190,36 @@ const Category = () => {
                 </Badge>
               )}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => setSortBy(sortBy === 'date' ? 'price' : 'date')}
-              className="flex items-center gap-2"
-            >
-              <SortAsc size={16} />
-              Sort by {sortBy === 'date' ? 'Date' : 'Price'}
-            </Button>
+            
+            {/* Sort buttons */}
+            <div className="flex border border-border rounded-lg overflow-hidden">
+              <Button
+                variant={sortBy === 'distance' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setSortBy('distance')}
+                className="rounded-none border-0"
+                disabled={!userLocation}
+              >
+                <MapPin size={14} className="mr-1" />
+                Nearest
+              </Button>
+              <Button
+                variant={sortBy === 'date' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setSortBy('date')}
+                className="rounded-none border-0 border-l border-border"
+              >
+                Date
+              </Button>
+              <Button
+                variant={sortBy === 'price' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setSortBy('price')}
+                className="rounded-none border-0 border-l border-border"
+              >
+                Price
+              </Button>
+            </div>
           </div>
         </div>
 
