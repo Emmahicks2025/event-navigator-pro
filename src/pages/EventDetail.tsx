@@ -328,9 +328,8 @@ const EventDetail = () => {
                 />
               )}
 
-              {import.meta.env.DEV && (
-                <MapDebugChip selectedSectionId={selectedSectionId} lastClick={mapDebug} />
-              )}
+               {/* Map debug overlay (kept on for troubleshooting section-click issues) */}
+               <MapDebugChip selectedSectionId={selectedSectionId} lastClick={mapDebug} />
             </div>
           )}
         </div>
