@@ -139,8 +139,9 @@ const ensureStyles = () => {
       fill-opacity: 0.3 !important;
       stroke: hsl(var(--border)) !important;
       stroke-width: 0.5px !important;
-      cursor: not-allowed;
-      pointer-events: none;
+      /* Keep sections clickable so users can filter and see “no tickets” states */
+      cursor: pointer;
+      pointer-events: all;
     }
     .venue-section-selected {
       fill: hsl(var(--primary)) !important;
@@ -361,6 +362,13 @@ export const DynamicVenueMap = ({
       const innerShape = groupEl.querySelector('path, polygon, rect, circle, ellipse');
       const targetElement = innerShape || groupEl;
 
+      // Some imported SVGs ship with pointer-events disabled on groups/shapes.
+      // Force-enable interactivity for matched elements.
+      (groupEl as SVGElement).style.pointerEvents = 'all';
+      (groupEl as SVGElement).style.cursor = 'pointer';
+      (targetElement as SVGElement).style.pointerEvents = 'all';
+      (targetElement as SVGElement).style.cursor = 'pointer';
+
       const isSelected = selectedSectionId === section.id;
 
       // Only apply styling if not already processed
@@ -385,14 +393,12 @@ export const DynamicVenueMap = ({
       const onClick = (e: Event) => {
         e.stopPropagation();
         e.preventDefault();
-        console.log('[VenueMap] Section clicked:', section.id, section.name);
         handleSectionClick(section.id, section, eventSection);
       };
 
       // Always bind click and hover for all matched sections
       // For text labels, ensure pointer events work and attach click + hover
       if (isTextLabel) {
-        console.log('[VenueMap] Binding click to text label:', section.name);
         (sourceEl as SVGElement).style.cursor = 'pointer';
         (sourceEl as SVGElement).style.pointerEvents = 'all';
         
@@ -435,8 +441,6 @@ export const DynamicVenueMap = ({
     };
 
     // Strategy 1: ID-based processing
-    // Strategy 1: ID-based processing
-    console.log('[VenueMap] Processing', idElements.length, 'ID elements,', textElements.length, 'text elements');
     
     idElements.forEach((element) => {
       const elementId = element.getAttribute('id') || '';
@@ -457,10 +461,7 @@ export const DynamicVenueMap = ({
       
       for (const id of identifiers) {
         matchData = sectionMapping.get(id);
-        if (matchData) {
-          console.log('[VenueMap] ID matched:', elementId, '->', matchData.section.name);
-          break;
-        }
+        if (matchData) break;
       }
 
       if (!matchData) return;
@@ -498,8 +499,6 @@ export const DynamicVenueMap = ({
       }
       if (!matchData) return;
 
-      console.log('[VenueMap] Text label matched:', label, '->', matchData.section.name, 'hasTickets:', matchData.hasTickets);
-      
       // Always bind interactivity for text labels - they need direct click handling
       bindInteractivity(textEl, matchData, true);
     });
