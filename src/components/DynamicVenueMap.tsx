@@ -97,6 +97,11 @@ const isUrl = (str: string): boolean => {
 const normalizeName = (name: string): string => {
   return name
     .toLowerCase()
+    // Common venue label synonyms/abbreviations (kept before stripping separators)
+    // Helps maps that label full words ("ORCHESTRA") while DB uses abbreviations ("ORCH").
+    .replace(/orchestra/gi, 'orch')
+    .replace(/mezzanine/gi, 'mezz')
+    .replace(/balcony/gi, 'balc')
     .replace(/[-_\s]+/g, '')
     .replace(/section/gi, '')
     .replace(/group/gi, '')
@@ -351,6 +356,11 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
     svgElement.style.maxHeight = '100%';
     svgElement.style.display = 'block';
 
+    // Some exported SVGs disable pointer events on the root or via inline styles/classes.
+    // Force-enable so delegated clicks always fire.
+    (svgElement as unknown as SVGElement).style.pointerEvents = 'all';
+    (svgElement as unknown as SVGElement).style.cursor = 'pointer';
+
     // Many venue maps have reliable IDs; some (like certain arena exports) have *no* ids.
     // Support both strategies:
     // 1) ID-based matching on elements with [id]
@@ -466,6 +476,58 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
       }
     };
 
+    // Heuristic resolver for venues whose SVG has granular labels (e.g. "LEFT ORCH")
+    // but the DB only contains coarse sections (e.g. "Orchestra").
+    const resolveByLabelHeuristics = (rawLabel: string) => {
+      const labelNorm = normalizeName(rawLabel);
+      if (!labelNorm) return null;
+
+      // Prefer by explicit keywords that usually map to section_type.
+      const wantsOrch = labelNorm.includes('orch');
+      const wantsMezz = labelNorm.includes('mezz');
+      const wantsBalc = labelNorm.includes('balc');
+      const wantsBox = labelNorm.includes('box');
+
+      const scored = sections
+        .map((section) => {
+          const sectionNorm = normalizeName(section.name);
+          if (!sectionNorm) return null;
+
+          // Base score using substring containment (coarse section names should match parts of label)
+          let score = 0;
+          if (labelNorm === sectionNorm) score += 100;
+          if (labelNorm.includes(sectionNorm) || sectionNorm.includes(labelNorm)) score += Math.min(40, sectionNorm.length);
+
+          // Boost by section_type hints
+          if (wantsOrch && section.section_type === 'orchestra') score += 80;
+          if (wantsMezz && section.section_type === 'mezzanine') score += 80;
+          if (wantsBalc && section.section_type === 'balcony') score += 80;
+          if (wantsBox && sectionNorm.includes('box')) score += 80;
+
+          // Front/Rear mezzanine hint if label includes it
+          if (wantsMezz) {
+            const wantsRear = labelNorm.includes('rear') || labelNorm.includes('back');
+            const wantsFront = labelNorm.includes('front');
+            if (wantsRear && sectionNorm.includes('rearmezz')) score += 60;
+            if (wantsFront && sectionNorm.includes('frontmezz')) score += 60;
+          }
+
+          return { section, score };
+        })
+        .filter(Boolean) as Array<{ section: Section; score: number }>;
+
+      scored.sort((a, b) => b.score - a.score);
+      const best = scored[0];
+      if (!best || best.score < 60) return null;
+
+      const eventSection = eventSections.find((es) => es.section_id === best.section.id);
+      let hasTickets = false;
+      if (ticketInventory) hasTickets = (ticketInventory.get(best.section.id) || 0) > 0;
+      else if (eventSection) hasTickets = eventSection.available_count > 0;
+
+      return { section: best.section, eventSection, hasTickets };
+    };
+
     // Strategy 1: ID-based processing
     
     idElements.forEach((element) => {
@@ -556,9 +618,61 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
       })
       .filter(Boolean) as Array<{ el: Element; cx: number; cy: number; matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean } }>;
 
+    // Some theatre-style SVGs don't mark section shapes with ids/classes at all.
+    // In that case, we fall back to mapping *generic shapes* to the nearest matched label.
     const sectionShapeCandidates = Array.from(
-      svgElement.querySelectorAll<SVGElement>('.section-path, [class*="section-path"], [class*="section_"]')
-    );
+      svgElement.querySelectorAll<SVGElement>(
+        [
+          // Preferred explicit class markers (fast + accurate)
+          '.section-path',
+          '[class*="section-path"]',
+          '[class*="section_"]',
+          // Generic shapes (broad fallback)
+          'path',
+          'polygon',
+          'rect',
+          'circle',
+          'ellipse',
+        ].join(',')
+      )
+    ).filter((el) => {
+      // Skip non-visual containers and text labels
+      const tag = el.tagName.toLowerCase();
+      if (tag === 'text' || tag === 'tspan') return false;
+
+      // Ignore defs/clip/masks/etc.
+      if (el.closest('defs, clipPath, mask, pattern, linearGradient, radialGradient, symbol')) return false;
+
+      // If the SVG explicitly says fill='none', it’s usually a border/outline, not a section.
+      const fillAttr = (el.getAttribute('fill') || '').trim().toLowerCase();
+      if (fillAttr === 'none') return false;
+
+      // Skip elements that are clearly not section shapes by id/class hints
+      const id = (el.getAttribute('id') || '').toLowerCase();
+      const cls = (el.getAttribute('class') || '').toLowerCase();
+      const combined = `${id} ${cls}`;
+      if (
+        combined.includes('background') ||
+        combined.includes('stage') ||
+        combined.includes('outline') ||
+        combined.includes('border')
+      ) {
+        return false;
+      }
+
+      // Quick area filter to avoid binding to tiny decorative shapes.
+      try {
+        const bb = (el as unknown as SVGGraphicsElement).getBBox?.();
+        if (!bb) return false;
+        const area = bb.width * bb.height;
+        // Tuned for typical venue SVG viewBox units; keeps performance stable.
+        if (!Number.isFinite(area) || area < 80) return false;
+      } catch {
+        return false;
+      }
+
+      return true;
+    });
 
     const MAX_SHAPES_TO_PROCESS = 1500;
     const MAX_LABEL_DISTANCE = 220; // SVG units; tuned to typical arena map scale
@@ -710,6 +824,32 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
         }
       }
 
+      // Heuristic fallback for coarse DB sections vs granular SVG labels
+      if (labeled) {
+        const heuristic = resolveByLabelHeuristics(labeled);
+        if (heuristic) {
+          e.preventDefault();
+          e.stopPropagation();
+          onDebugEvent?.({
+            ...debugBase,
+            labelText: labeled ?? null,
+            resolvedSectionId: heuristic.section.id,
+            resolutionPath: 'proximity',
+            candidateCount: uniq.length,
+          });
+          if (shouldLog) {
+            // eslint-disable-next-line no-console
+            console.info('[MapDebug] resolved via heuristics', {
+              label: labeled,
+              resolvedSectionId: heuristic.section.id,
+              resolvedSectionName: heuristic.section.name,
+            });
+          }
+          handleSectionClick(heuristic.section.id, heuristic.section, heuristic.eventSection);
+          return;
+        }
+      }
+
       // No match.
       onDebugEvent?.({
         ...debugBase,
@@ -736,7 +876,7 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
       cleanupRef.current.forEach(fn => fn());
       cleanupRef.current = [];
     };
-  }, [svgContent, sectionMapping, selectedSectionId, handleSectionClick, handleSectionHover, effectiveViewBox, sections.length]);
+   }, [svgContent, sectionMapping, selectedSectionId, handleSectionClick, handleSectionHover, effectiveViewBox, sections.length, eventSections.length, !!ticketInventory]);
 
   const handleZoomIn = useCallback(() => setZoom(z => Math.min(3, z + 0.25)), []);
   const handleZoomOut = useCallback(() => setZoom(z => Math.max(0.5, z - 0.25)), []);
