@@ -12,49 +12,73 @@ interface VenueData {
   state: string | null;
 }
 
-// Build search query for gotickets.com
-function buildSearchQuery(venue: VenueData): string {
-  const parts = [venue.name];
-  if (venue.city) parts.push(venue.city);
-  if (venue.state) parts.push(venue.state);
-  return `site:gotickets.com ${parts.join(' ')} tickets`;
+// Format venue name for URL slug
+function formatVenueSlug(name: string, city: string, state: string | null): string {
+  const slug = `${name}-${city}${state ? `-${state}` : ''}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  return slug;
 }
 
-// Extract SVG from HTML content
+// Extract SVG from HTML content - looks for interactive venue maps
 function extractSvgFromHtml(html: string): string | null {
-  // Look for SVG with class patterns common on gotickets
-  const svgPatterns = [
-    /<svg[^>]*class="[^"]*interactive[^"]*"[^>]*>[\s\S]*?<\/svg>/gi,
-    /<svg[^>]*class="[^"]*zoom-transition[^"]*"[^>]*>[\s\S]*?<\/svg>/gi,
-    /<svg[^>]*id="[^"]*map[^"]*"[^>]*>[\s\S]*?<\/svg>/gi,
-    /<svg[^>]*viewBox[^>]*>[\s\S]*?<\/svg>/gi,
+  if (!html) return null;
+  
+  // Multiple patterns to find SVG venue maps
+  const patterns = [
+    // SVG with viewBox containing section patterns
+    /<svg[^>]*viewBox[^>]*>[\s\S]*?(?:section|group|row|seat)[\s\S]*?<\/svg>/gi,
+    // SVG with map-related class
+    /<svg[^>]*class="[^"]*(?:map|venue|seating)[^"]*"[^>]*>[\s\S]*?<\/svg>/gi,
+    // Large SVG (likely venue map)
+    /<svg[^>]*>[\s\S]{10000,}<\/svg>/gi,
+    // Any SVG with id patterns for sections
+    /<svg[^>]*>[\s\S]*?id="\d{1,3}"[\s\S]*?<\/svg>/gi,
   ];
-
-  for (const pattern of svgPatterns) {
+  
+  for (const pattern of patterns) {
     const matches = html.match(pattern);
     if (matches && matches.length > 0) {
-      // Find the largest SVG (likely the venue map)
+      // Return the largest SVG found (most likely to be the venue map)
       const largest = matches.reduce((a, b) => a.length > b.length ? a : b);
-      // Only accept if it has section-like IDs
-      if (largest.includes('-section') || largest.includes('-group') || /id="\d{1,3}"/.test(largest)) {
-        return largest;
+      
+      // Validate it has section-like content
+      if (
+        largest.includes('-section') || 
+        largest.includes('-group') || 
+        /id="\d{1,3}"/.test(largest) ||
+        largest.length > 5000
+      ) {
+        return sanitizeSvg(largest);
       }
     }
   }
+  
   return null;
 }
 
-// Parse SVG to extract section IDs for creating sections
+// Clean SVG content
+function sanitizeSvg(svg: string): string {
+  return svg
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/on\w+="[^"]*"/gi, '')
+    .replace(/javascript:[^"']*/gi, '')
+    .replace(/<a[^>]*href="[^"]*"[^>]*>/gi, '<g>')
+    .replace(/<\/a>/gi, '</g>');
+}
+
+// Parse SVG to extract section IDs
 function extractSectionIds(svgContent: string): string[] {
   const ids: string[] = [];
   
-  // Match patterns like id="101-group", id="101-section", id="A1-group"
-  const idPattern = /id="([A-Za-z0-9]+)(?:-(?:group|section))"/gi;
+  // Match patterns like id="101-group", id="101-section", id="A1"
+  const idPattern = /id="([A-Za-z0-9]+)(?:-(?:group|section))?"/gi;
   let match;
   while ((match = idPattern.exec(svgContent)) !== null) {
     const id = match[1];
-    // Only add unique IDs
-    if (!ids.includes(id)) {
+    if (!ids.includes(id) && /^[A-Z0-9]{1,4}$/i.test(id)) {
       ids.push(id);
     }
   }
@@ -64,7 +88,6 @@ function extractSectionIds(svgContent: string): string[] {
 
 // Determine section type from ID
 function getSectionType(sectionId: string): string {
-  // Check if numeric
   const num = parseInt(sectionId, 10);
   if (!isNaN(num)) {
     if (num < 100) return 'floor';
@@ -73,13 +96,12 @@ function getSectionType(sectionId: string): string {
     return 'upper';
   }
   
-  // Text-based IDs
   const lower = sectionId.toLowerCase();
   if (lower.includes('floor') || lower.includes('pit') || lower.includes('ga')) return 'floor';
   if (lower.includes('vip') || lower.includes('suite') || lower.includes('box')) return 'vip';
   if (lower.includes('club') || lower.includes('premium')) return 'club';
   if (lower.includes('upper') || lower.includes('balcony')) return 'upper';
-  if (lower.includes('lower') || lower.includes('100')) return 'lower';
+  if (lower.includes('lower')) return 'lower';
   
   return 'standard';
 }
@@ -90,7 +112,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { venueIds, limit = 10, createSections = true } = await req.json();
+    const { venueIds, limit = 5, createSections = true, directUrls } = await req.json();
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -104,8 +126,103 @@ Deno.serve(async (req) => {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+    const results: any[] = [];
 
-    // Get venues needing SVG maps
+    // Option 1: Use direct URLs provided
+    if (directUrls && Array.isArray(directUrls)) {
+      for (const { venueId, url } of directUrls) {
+        try {
+          console.log(`Scraping direct URL for venue ${venueId}: ${url}`);
+          
+          const scrapeResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${firecrawlKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              url,
+              formats: ['html'],
+              waitFor: 3000,
+            }),
+          });
+
+          if (!scrapeResponse.ok) {
+            console.log(`Scrape failed for ${url}: ${scrapeResponse.status}`);
+            results.push({ venueId, url, success: false, error: 'Scrape failed' });
+            continue;
+          }
+
+          const scrapeData = await scrapeResponse.json();
+          const html = scrapeData.data?.html || scrapeData.html;
+          
+          if (!html) {
+            results.push({ venueId, url, success: false, error: 'No HTML returned' });
+            continue;
+          }
+
+          const svg = extractSvgFromHtml(html);
+          
+          if (svg) {
+            console.log(`Found SVG for venue ${venueId} (${svg.length} chars)`);
+            
+            const { error: updateError } = await supabase
+              .from('venues')
+              .update({ svg_map: svg })
+              .eq('id', venueId);
+
+            if (updateError) {
+              results.push({ venueId, url, success: false, error: updateError.message });
+            } else {
+              results.push({ venueId, url, success: true, svgLength: svg.length });
+              
+              // Create sections if requested
+              if (createSections) {
+                const sectionIds = extractSectionIds(svg);
+                if (sectionIds.length > 0) {
+                  const { data: existingSections } = await supabase
+                    .from('sections')
+                    .select('svg_path')
+                    .eq('venue_id', venueId);
+                  
+                  const existingPaths = new Set((existingSections || []).map(s => s.svg_path));
+                  
+                  const newSections = sectionIds
+                    .filter(id => !existingPaths.has(`${id}-group`) && !existingPaths.has(id))
+                    .map((id, index) => ({
+                      venue_id: venueId,
+                      name: `Section ${id}`,
+                      svg_path: `${id}-group`,
+                      section_type: getSectionType(id),
+                      capacity: 100,
+                      sort_order: index,
+                    }));
+                  
+                  if (newSections.length > 0) {
+                    await supabase.from('sections').insert(newSections);
+                    console.log(`Created ${newSections.length} sections`);
+                  }
+                }
+              }
+            }
+          } else {
+            results.push({ venueId, url, success: false, error: 'No SVG found in page' });
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+        } catch (err) {
+          results.push({ venueId, url, success: false, error: String(err) });
+        }
+      }
+      
+      return new Response(
+        JSON.stringify({ success: true, results }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Option 2: Search and scrape venues by name
     let query = supabase
       .from('venues')
       .select('id, name, city, state')
@@ -123,7 +240,6 @@ Deno.serve(async (req) => {
     const { data: venues, error: venueError } = await query;
 
     if (venueError) {
-      console.error('Error fetching venues:', venueError);
       return new Response(
         JSON.stringify({ success: false, error: venueError.message }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -132,15 +248,15 @@ Deno.serve(async (req) => {
 
     console.log(`Processing ${venues?.length || 0} venues`);
 
-    const results: any[] = [];
-
     for (const venue of venues || []) {
       try {
-        console.log(`Searching for SVG map: ${venue.name}`);
+        console.log(`Searching for: ${venue.name}, ${venue.city}`);
         
-        // Search for the venue on gotickets.com
-        const searchQuery = buildSearchQuery(venue);
+        // Build gotickets.com URL directly
+        const venueSlug = formatVenueSlug(venue.name, venue.city, venue.state);
+        const searchQuery = `site:gotickets.com ${venue.name} ${venue.city} tickets`;
         
+        // Search for venue pages
         const searchResponse = await fetch('https://api.firecrawl.dev/v1/search', {
           method: 'POST',
           headers: {
@@ -150,53 +266,65 @@ Deno.serve(async (req) => {
           body: JSON.stringify({
             query: searchQuery,
             limit: 3,
-            scrapeOptions: {
-              formats: ['html'],
-            },
           }),
         });
 
         if (!searchResponse.ok) {
-          console.log(`Search failed for ${venue.name}: ${searchResponse.status}`);
           results.push({ venue: venue.name, success: false, error: 'Search failed' });
           continue;
         }
 
         const searchData = await searchResponse.json();
         const searchResults = searchData.data || [];
-
+        
         let svgFound = false;
-
+        
         for (const result of searchResults) {
           if (svgFound) break;
           
-          const html = result.html || result.rawHtml;
+          const pageUrl = result.url;
+          if (!pageUrl || !pageUrl.includes('gotickets.com')) continue;
+          
+          console.log(`Scraping: ${pageUrl}`);
+          
+          // Scrape the page for HTML
+          const scrapeResponse = await fetch('https://api.firecrawl.dev/v1/scrape', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${firecrawlKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              url: pageUrl,
+              formats: ['html'],
+              waitFor: 2000,
+            }),
+          });
+          
+          if (!scrapeResponse.ok) continue;
+          
+          const scrapeData = await scrapeResponse.json();
+          const html = scrapeData.data?.html || scrapeData.html;
+          
           if (!html) continue;
-
+          
           const svg = extractSvgFromHtml(html);
           
           if (svg) {
             console.log(`Found SVG for ${venue.name} (${svg.length} chars)`);
             
-            // Update venue with SVG
             const { error: updateError } = await supabase
               .from('venues')
               .update({ svg_map: svg })
               .eq('id', venue.id);
 
-            if (updateError) {
-              console.error(`Error updating venue ${venue.name}:`, updateError);
-              results.push({ venue: venue.name, success: false, error: updateError.message });
-            } else {
+            if (!updateError) {
               svgFound = true;
+              results.push({ venue: venue.name, success: true, svgLength: svg.length });
               
-              // Create sections from SVG if requested
               if (createSections) {
                 const sectionIds = extractSectionIds(svg);
-                console.log(`Found ${sectionIds.length} sections in SVG for ${venue.name}`);
-                
                 if (sectionIds.length > 0) {
-                  // Check existing sections
                   const { data: existingSections } = await supabase
                     .from('sections')
                     .select('svg_path')
@@ -205,7 +333,7 @@ Deno.serve(async (req) => {
                   const existingPaths = new Set((existingSections || []).map(s => s.svg_path));
                   
                   const newSections = sectionIds
-                    .filter(id => !existingPaths.has(`${id}-group`) && !existingPaths.has(id))
+                    .filter(id => !existingPaths.has(`${id}-group`))
                     .map((id, index) => ({
                       venue_id: venue.id,
                       name: `Section ${id}`,
@@ -216,39 +344,21 @@ Deno.serve(async (req) => {
                     }));
                   
                   if (newSections.length > 0) {
-                    const { error: sectionError } = await supabase
-                      .from('sections')
-                      .insert(newSections);
-                    
-                    if (sectionError) {
-                      console.error(`Error creating sections for ${venue.name}:`, sectionError);
-                    } else {
-                      console.log(`Created ${newSections.length} sections for ${venue.name}`);
-                    }
+                    await supabase.from('sections').insert(newSections);
                   }
                 }
               }
-              
-              results.push({ 
-                venue: venue.name, 
-                success: true, 
-                svgLength: svg.length,
-                sectionsCreated: createSections ? extractSectionIds(svg).length : 0,
-              });
             }
           }
         }
 
         if (!svgFound) {
-          console.log(`No SVG found for ${venue.name}`);
           results.push({ venue: venue.name, success: false, error: 'No SVG map found' });
         }
 
-        // Rate limiting - wait between requests
         await new Promise(resolve => setTimeout(resolve, 1000));
 
       } catch (venueErr) {
-        console.error(`Error processing venue ${venue.name}:`, venueErr);
         results.push({ venue: venue.name, success: false, error: String(venueErr) });
       }
     }
