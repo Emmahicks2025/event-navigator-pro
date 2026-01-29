@@ -9,6 +9,18 @@ export function usePerformers(options?: { category?: string; limit?: number }) {
   return useQuery({
     queryKey: ['performers', options],
     queryFn: async (): Promise<Performer[]> => {
+      // First get category ID if filtering by category
+      let categoryId: string | null = null;
+      if (options?.category && options.category !== 'all') {
+        const { data: cat } = await supabase
+          .from('categories')
+          .select('id')
+          .eq('slug', options.category)
+          .single();
+        categoryId = cat?.id || null;
+      }
+
+      // Build query with category filter at database level
       let query = supabase
         .from('performers')
         .select(`
@@ -16,6 +28,11 @@ export function usePerformers(options?: { category?: string; limit?: number }) {
           category:categories(slug)
         `)
         .order('name', { ascending: true });
+
+      // Apply category filter BEFORE limit
+      if (categoryId) {
+        query = query.eq('category_id', categoryId);
+      }
 
       if (options?.limit) {
         query = query.limit(options.limit);
@@ -40,18 +57,13 @@ export function usePerformers(options?: { category?: string; limit?: number }) {
         }
       });
 
-      // Filter by category if provided
-      let result = (performers || []).map((p: any) => ({
+      const result = (performers || []).map((p: any) => ({
         id: p.id,
         name: p.name,
         image: p.image_url || 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400',
         category: (p.category?.slug as 'concerts' | 'sports' | 'theater' | 'comedy') || 'concerts',
         eventsCount: countMap.get(p.id) || 0,
       }));
-
-      if (options?.category && options.category !== 'all') {
-        result = result.filter(p => p.category === options.category);
-      }
 
       return result;
     },
