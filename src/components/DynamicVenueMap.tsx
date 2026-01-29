@@ -236,6 +236,17 @@ export const DynamicVenueMap = ({
         mapping.set(`${svgPathLower}-group`, data);
         mapping.set(`${svgPathLower}-section`, data);
         mapping.set(normalizeName(section.svg_path), data);
+        
+        // Also extract numeric portion from svg_path (e.g., "232" from "232-group")
+        const svgPathNumeric = svgPathLower.match(/^(\d+)/);
+        if (svgPathNumeric && !mapping.has(svgPathNumeric[1])) {
+          mapping.set(svgPathNumeric[1], data);
+        }
+        // Also try alphanumeric patterns like "t305", "ls53"
+        const alphaNumeric = svgPathLower.match(/^([a-z]*\d+)/);
+        if (alphaNumeric && !mapping.has(alphaNumeric[1])) {
+          mapping.set(alphaNumeric[1], data);
+        }
       }
       
       // Map by section name (for fallback matching)
@@ -248,6 +259,18 @@ export const DynamicVenueMap = ({
       if (!mapping.has(nameLower)) mapping.set(nameLower, data);
       if (!mapping.has(nameLower.replace(/\s+/g, '-'))) mapping.set(nameLower.replace(/\s+/g, '-'), data);
       if (!mapping.has(nameLower.replace(/\s+/g, ''))) mapping.set(nameLower.replace(/\s+/g, ''), data);
+      
+      // Extract numeric portion from section name (e.g., "101" from "Section 101")
+      const sectionNumeric = section.name.match(/(\d+)/);
+      if (sectionNumeric && !mapping.has(sectionNumeric[1])) {
+        mapping.set(sectionNumeric[1], data);
+      }
+      
+      // Handle T/LS prefixed sections (e.g., "T305" from "Section T305")
+      const prefixedMatch = section.name.match(/([TL]S?\d+)/i);
+      if (prefixedMatch && !mapping.has(prefixedMatch[1].toLowerCase())) {
+        mapping.set(prefixedMatch[1].toLowerCase(), data);
+      }
     });
     
     return mapping;
