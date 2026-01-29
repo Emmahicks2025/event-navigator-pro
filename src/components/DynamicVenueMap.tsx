@@ -343,6 +343,10 @@ export const DynamicVenueMap = ({
     const processedElements = new Set<string>();
     const matchedSectionIds = new Set<string>();
 
+    // Fallback mapping for SVGs that don't have meaningful IDs on section shapes.
+    // We map a clickable "section shape" to the nearest text label (e.g., "101", "PIT").
+    const elementToMatch = new WeakMap<Element, { section: Section; eventSection?: EventSection; hasTickets: boolean }>();
+
     const skipPatterns = [
       /^svg$/i, /^defs$/i, /^clip/i, /^mask/i, /^gradient/i, /^pattern/i,
       /^filter/i, /^g\d*$/i, /^layer/i, /^path\d*$/i, /^rect\d*$/i,
@@ -493,7 +497,66 @@ export const DynamicVenueMap = ({
 
       // Always bind interactivity for text labels - they need direct click handling
       bindInteractivity(textEl, matchData, true);
+
+      // Save label geometry for later proximity matching (Strategy 3)
+      try {
+        const bb = (textEl as unknown as SVGGraphicsElement).getBBox?.();
+        if (bb && Number.isFinite(bb.x) && Number.isFinite(bb.y)) {
+          (textEl as any).__tixLabelCenter = { x: bb.x + bb.width / 2, y: bb.y + bb.height / 2 };
+          (textEl as any).__tixLabelMatch = matchData;
+        }
+      } catch {
+        // getBBox can throw if element is not rendered; ignore
+      }
     });
+
+    // Strategy 3: class + proximity-based binding
+    // Many exported maps (including some arena diagrams) use CSS classes like `.section-path`
+    // on the actual section shapes, and rely on nearby <text> labels for the section number.
+    // We bind those shapes by finding the closest label's matched section.
+    const labelIndex = textElements
+      .map((el) => {
+        const c = (el as any).__tixLabelCenter as { x: number; y: number } | undefined;
+        const m = (el as any).__tixLabelMatch as { section: Section; eventSection?: EventSection; hasTickets: boolean } | undefined;
+        if (!c || !m) return null;
+        return { el, cx: c.x, cy: c.y, matchData: m };
+      })
+      .filter(Boolean) as Array<{ el: Element; cx: number; cy: number; matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean } }>;
+
+    const sectionShapeCandidates = Array.from(
+      svgElement.querySelectorAll<SVGElement>('.section-path, [class*="section-path"], [class*="section_"]')
+    );
+
+    const MAX_SHAPES_TO_PROCESS = 1500;
+    const MAX_LABEL_DISTANCE = 220; // SVG units; tuned to typical arena map scale
+
+    if (labelIndex.length > 0 && sectionShapeCandidates.length > 0) {
+      sectionShapeCandidates.slice(0, MAX_SHAPES_TO_PROCESS).forEach((shapeEl) => {
+        try {
+          const bb = (shapeEl as unknown as SVGGraphicsElement).getBBox?.();
+          if (!bb) return;
+          const cx = bb.x + bb.width / 2;
+          const cy = bb.y + bb.height / 2;
+
+          let best: { dist: number; matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean } } | null = null;
+          for (const lbl of labelIndex) {
+            const dx = lbl.cx - cx;
+            const dy = lbl.cy - cy;
+            const d = Math.sqrt(dx * dx + dy * dy);
+            if (d > MAX_LABEL_DISTANCE) continue;
+            if (!best || d < best.dist) best = { dist: d, matchData: lbl.matchData };
+          }
+
+          if (best) {
+            elementToMatch.set(shapeEl, best.matchData);
+            // Bind styles + hover on the actual section shape.
+            bindInteractivity(shapeEl, best.matchData, false);
+          }
+        } catch {
+          // Ignore shapes that fail getBBox
+        }
+      });
+    }
 
     // Delegated click handler (single source of truth).
     // Prevents double-trigger toggling when multiple listeners exist in the SVG tree.
@@ -535,6 +598,18 @@ export const DynamicVenueMap = ({
           e.stopPropagation();
           handleSectionClick(matchData.section.id, matchData.section, matchData.eventSection);
           return;
+        }
+      }
+
+      // Final fallback: if the clicked thing is a "section shape" (or inside one), use the
+      // proximity-based mapping computed above.
+      const shape = target.closest('.section-path, [class*="section-path"], [class*="section_"]');
+      if (shape) {
+        const mapped = elementToMatch.get(shape);
+        if (mapped) {
+          e.preventDefault();
+          e.stopPropagation();
+          handleSectionClick(mapped.section.id, mapped.section, mapped.eventSection);
         }
       }
     };
