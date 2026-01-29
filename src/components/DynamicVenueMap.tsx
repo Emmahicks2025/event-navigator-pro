@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -32,21 +32,32 @@ interface DynamicVenueMapProps {
 // Extract clean SVG from potentially messy data
 const extractSvgContent = (rawSvg: string): string => {
   if (!rawSvg) return '';
-  
-  // Find the <svg start and extract everything from there
   const svgStartMatch = rawSvg.match(/<svg[\s\S]*<\/svg>/i);
-  if (svgStartMatch) {
-    return svgStartMatch[0];
-  }
-  
-  // If no match, return as-is (might already be clean)
-  return rawSvg;
+  return svgStartMatch ? svgStartMatch[0] : rawSvg;
 };
 
 // Parse viewBox from SVG if not provided
 const extractViewBox = (svgContent: string): string | null => {
   const viewBoxMatch = svgContent.match(/viewBox=["']([^"']+)["']/i);
   return viewBoxMatch ? viewBoxMatch[1] : null;
+};
+
+// Determine section type from SVG element ID (numbered sections)
+const getSectionTypeFromId = (elementId: string): string | null => {
+  const numMatch = elementId.match(/^(\d+)(-section|-group)?$/i);
+  if (!numMatch) return null;
+  
+  const sectionNum = parseInt(numMatch[1], 10);
+  
+  // Common arena numbering conventions:
+  // 1-99: Floor/Pit
+  // 100-199: Lower level
+  // 200-299: Club/Mid level
+  // 300+: Upper level
+  if (sectionNum < 100) return 'floor';
+  if (sectionNum < 200) return 'lower';
+  if (sectionNum < 300) return 'club';
+  return 'upper';
 };
 
 export const DynamicVenueMap = ({
@@ -61,18 +72,78 @@ export const DynamicVenueMap = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(1);
 
-  // Clean SVG content - extract only the SVG element
-  const cleanSvgMap = extractSvgContent(svgMap);
+  // Clean SVG content
+  const cleanSvgMap = useMemo(() => extractSvgContent(svgMap), [svgMap]);
   const effectiveViewBox = viewBox || extractViewBox(cleanSvgMap);
 
-  // Create a map of svg_path to section data
-  const sectionMap = new Map<string, { section: Section; eventSection?: EventSection }>();
-  sections.forEach(section => {
-    if (section.svg_path) {
+  // Build section type to section/eventSection mapping
+  const sectionTypeMap = useMemo(() => {
+    const map = new Map<string, { section: Section; eventSection?: EventSection }>();
+    
+    sections.forEach(section => {
       const eventSection = eventSections.find(es => es.section_id === section.id);
-      sectionMap.set(section.svg_path, { section, eventSection });
+      const type = section.section_type?.toLowerCase() || 'general';
+      
+      // Only add if there are tickets available
+      if (eventSection && eventSection.available_count > 0) {
+        // Map multiple type variations
+        map.set(type, { section, eventSection });
+        
+        // Add aliases
+        if (type === 'floor') {
+          map.set('pit', { section, eventSection });
+          map.set('ga', { section, eventSection });
+        }
+        if (type === 'lower') {
+          map.set('loge', { section, eventSection });
+          map.set('100', { section, eventSection });
+        }
+        if (type === 'club') {
+          map.set('200', { section, eventSection });
+          map.set('premium', { section, eventSection });
+        }
+        if (type === 'upper') {
+          map.set('300', { section, eventSection });
+          map.set('balcony', { section, eventSection });
+        }
+      }
+    });
+    
+    return map;
+  }, [sections, eventSections]);
+
+  // Get the best matching section for an SVG element
+  const findSectionForElement = (elementId: string): { section: Section; eventSection?: EventSection } | null => {
+    // First try direct svg_path match
+    for (const section of sections) {
+      if (section.svg_path?.toLowerCase() === elementId.toLowerCase()) {
+        const eventSection = eventSections.find(es => es.section_id === section.id);
+        if (eventSection && eventSection.available_count > 0) {
+          return { section, eventSection };
+        }
+      }
     }
-  });
+
+    // Then try section type inference from numbered sections
+    const sectionType = getSectionTypeFromId(elementId);
+    if (sectionType) {
+      return sectionTypeMap.get(sectionType) || null;
+    }
+
+    // Try name matching
+    const cleanId = elementId.toLowerCase().replace(/-section|-group/g, '');
+    for (const section of sections) {
+      const cleanName = section.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+      if (cleanName === cleanId || cleanName.includes(cleanId) || cleanId.includes(cleanName)) {
+        const eventSection = eventSections.find(es => es.section_id === section.id);
+        if (eventSection && eventSection.available_count > 0) {
+          return { section, eventSection };
+        }
+      }
+    }
+
+    return null;
+  };
 
   // Setup SVG interactivity
   useEffect(() => {
@@ -82,83 +153,85 @@ export const DynamicVenueMap = ({
     const svgElement = container.querySelector('svg');
     if (!svgElement) return;
 
-    // Apply viewbox if provided - make SVG responsive
+    // Make SVG responsive
     if (effectiveViewBox) {
       svgElement.setAttribute('viewBox', effectiveViewBox);
     }
-    
-    // Remove fixed width/height for responsive scaling
     svgElement.removeAttribute('width');
     svgElement.removeAttribute('height');
-    
-    // Style the SVG for responsive fit
     svgElement.style.width = '100%';
     svgElement.style.height = '100%';
     svgElement.style.maxWidth = '100%';
     svgElement.style.maxHeight = '100%';
     svgElement.style.display = 'block';
 
-    // Find all elements that could be sections
-    const allElements = svgElement.querySelectorAll('path, polygon, rect, circle, g[id]');
+    // Find all potential section elements
+    const allElements = svgElement.querySelectorAll('[id]');
+    const cleanupFunctions: (() => void)[] = [];
     
-    allElements.forEach((element) => {
-      const id = element.getAttribute('id');
-      if (!id) return;
+    // Skip these IDs
+    const skipPatterns = ['svg', 'defs', 'style', 'metadata', 'background', 'stage', 'layer', 'corel', 'parent', 'namedview'];
 
-      const sectionData = sectionMap.get(id);
+    allElements.forEach((element) => {
+      const elementId = element.getAttribute('id') || '';
       
-      if (sectionData) {
-        const { section, eventSection } = sectionData;
+      // Skip non-section elements
+      if (skipPatterns.some(skip => elementId.toLowerCase().includes(skip))) return;
+      if (elementId.startsWith('t') && /^t\d+$/.test(elementId)) return; // Text labels like t101
+      if (/^\d{7,}$/.test(elementId)) return; // Long numeric IDs (random)
+
+      const match = findSectionForElement(elementId);
+
+      if (match) {
+        const { section, eventSection } = match;
+        const hasTickets = eventSection && eventSection.available_count > 0;
         const isSelected = selectedSectionId === section.id;
-        const isSoldOut = eventSection?.is_sold_out || eventSection?.available_count === 0;
-        
+
         // Apply styling
-        element.classList.remove('venue-section-available', 'venue-section-sold-out', 'venue-section-selected');
-        
+        element.classList.remove(
+          'venue-section-available',
+          'venue-section-selected',
+          'venue-section-hovered'
+        );
+
         if (isSelected) {
           element.classList.add('venue-section-selected');
-        } else if (isSoldOut) {
-          element.classList.add('venue-section-sold-out');
-        } else if (eventSection && eventSection.available_count > 0) {
+        } else if (hasTickets) {
           element.classList.add('venue-section-available');
         }
 
-        (element as HTMLElement).style.cursor = isSoldOut ? 'not-allowed' : 'pointer';
-        
-        // Event listeners
-        const handleMouseEnter = () => {
-          if (!isSoldOut) {
+        if (hasTickets) {
+          (element as HTMLElement).style.cursor = 'pointer';
+
+          const handleMouseEnter = () => {
             element.classList.add('venue-section-hovered');
-          }
-          onSectionHover(section, eventSection);
-        };
-        
-        const handleMouseLeave = () => {
-          element.classList.remove('venue-section-hovered');
-          onSectionHover(null);
-        };
-        
-        const handleClick = (e: Event) => {
-          e.stopPropagation();
-          if (!isSoldOut) {
+            onSectionHover(section, eventSection);
+          };
+
+          const handleMouseLeave = () => {
+            element.classList.remove('venue-section-hovered');
+            onSectionHover(null);
+          };
+
+          const handleClick = (e: Event) => {
+            e.stopPropagation();
             onSectionClick(section.id, section, eventSection);
-          }
-        };
+          };
 
-        element.addEventListener('mouseenter', handleMouseEnter);
-        element.addEventListener('mouseleave', handleMouseLeave);
-        element.addEventListener('click', handleClick);
+          element.addEventListener('mouseenter', handleMouseEnter);
+          element.addEventListener('mouseleave', handleMouseLeave);
+          element.addEventListener('click', handleClick);
 
-        // Store cleanup functions
-        (element as any)._cleanup = () => {
-          element.removeEventListener('mouseenter', handleMouseEnter);
-          element.removeEventListener('mouseleave', handleMouseLeave);
-          element.removeEventListener('click', handleClick);
-        };
+          cleanupFunctions.push(() => {
+            element.removeEventListener('mouseenter', handleMouseEnter);
+            element.removeEventListener('mouseleave', handleMouseLeave);
+            element.removeEventListener('click', handleClick);
+          });
+        }
       }
     });
 
-    // Add global styles
+    // Inject styles - Blue for available sections
     const styleId = 'dynamic-venue-map-styles';
     let styleEl = document.getElementById(styleId);
     if (!styleEl) {
@@ -168,44 +241,38 @@ export const DynamicVenueMap = ({
     }
     styleEl.textContent = `
       .venue-section-available {
-        fill: hsl(var(--success)) !important;
-        fill-opacity: 0.5 !important;
-        stroke: hsl(var(--success)) !important;
-        stroke-width: 1px !important;
-        transition: all 0.2s ease;
-      }
-      .venue-section-sold-out {
-        fill: hsl(var(--muted)) !important;
-        fill-opacity: 0.3 !important;
-        stroke: hsl(var(--border)) !important;
-        stroke-width: 1px !important;
+        fill: #3b82f6 !important;
+        fill-opacity: 0.6 !important;
+        stroke: #1d4ed8 !important;
+        stroke-width: 1.5px !important;
+        transition: all 0.15s ease;
       }
       .venue-section-selected {
-        fill: hsl(var(--primary)) !important;
-        fill-opacity: 0.7 !important;
-        stroke: hsl(var(--primary)) !important;
-        stroke-width: 3px !important;
+        fill: #1d4ed8 !important;
+        fill-opacity: 0.85 !important;
+        stroke: #1e40af !important;
+        stroke-width: 2.5px !important;
       }
       .venue-section-hovered {
+        fill: #2563eb !important;
         fill-opacity: 0.8 !important;
         stroke-width: 2px !important;
         filter: brightness(1.1);
       }
     `;
 
-    // Cleanup
     return () => {
-      allElements.forEach((element) => {
-        if ((element as any)._cleanup) {
-          (element as any)._cleanup();
-        }
-      });
+      cleanupFunctions.forEach(fn => fn());
     };
-  }, [cleanSvgMap, sections, eventSections, selectedSectionId, onSectionClick, onSectionHover, effectiveViewBox, sectionMap]);
+  }, [cleanSvgMap, sections, eventSections, selectedSectionId, onSectionClick, onSectionHover, effectiveViewBox, sectionTypeMap]);
 
   const handleZoomIn = () => setZoom(z => Math.min(3, z + 0.25));
   const handleZoomOut = () => setZoom(z => Math.max(0.5, z - 0.25));
   const handleReset = () => setZoom(1);
+
+  // Calculate stats for legend
+  const availableCount = eventSections.filter(es => es.available_count > 0).length;
+  const totalSections = eventSections.length;
 
   if (!cleanSvgMap) {
     return (
@@ -216,7 +283,7 @@ export const DynamicVenueMap = ({
   }
 
   return (
-    <div className="relative h-full">
+    <div className="relative h-full flex flex-col gap-2">
       {/* Zoom Controls */}
       <div className="absolute top-2 right-2 z-10 flex gap-1 bg-card/90 backdrop-blur rounded-lg p-1 border border-border">
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleZoomOut}>
@@ -233,14 +300,22 @@ export const DynamicVenueMap = ({
         </Button>
       </div>
 
-      {/* Map Container - No scrollbar, responsive fit */}
+      {/* Legend */}
+      <div className="absolute top-2 left-2 z-10 flex gap-3 bg-card/90 backdrop-blur rounded-lg px-3 py-2 border border-border text-xs">
+        <div className="flex items-center gap-1.5">
+          <div className="w-3 h-3 rounded-sm bg-blue-500" />
+          <span className="text-muted-foreground">Available ({availableCount}/{totalSections})</span>
+        </div>
+      </div>
+
+      {/* Map Container */}
       <div 
-        className="bg-card rounded-lg border border-border overflow-hidden"
+        className="flex-1 bg-card rounded-lg border border-border overflow-hidden"
         style={{ aspectRatio: '1 / 1' }}
       >
         <div
           ref={containerRef}
-          className="w-full h-full flex items-center justify-center p-4"
+          className="w-full h-full flex items-center justify-center p-2"
           style={{ 
             transform: `scale(${zoom})`,
             transformOrigin: 'center center',
