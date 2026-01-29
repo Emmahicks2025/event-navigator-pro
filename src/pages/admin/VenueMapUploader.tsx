@@ -106,7 +106,15 @@ export default function VenueMapUploader() {
       
       // Get all files - use Object.keys to iterate
       const allFiles = Object.keys(zipContent.files);
-      console.log('All file names in ZIP:', allFiles.slice(0, 20));
+      console.log('All file names in ZIP:', allFiles);
+      
+      // Look for README/documentation files and log their content
+      for (const fileName of allFiles) {
+        if (fileName.toLowerCase().includes('readme') || fileName.toLowerCase().endsWith('.md')) {
+          const content = await zipContent.files[fileName].async('string');
+          console.log(`\n========== ${fileName} ==========\n${content}\n=================================\n`);
+        }
+      }
       
       const files = allFiles
         .filter(name => !zipContent.files[name].dir)
