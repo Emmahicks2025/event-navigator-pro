@@ -1,5 +1,8 @@
 project_id = "lekhplpwdqtmbjmoqzyd"
 
+[functions.cache-performer-images]
+verify_jwt = false
+
 [functions.detect-venue-from-svg]
 verify_jwt = false
 
