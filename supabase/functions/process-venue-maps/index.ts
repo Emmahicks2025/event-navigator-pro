@@ -102,6 +102,49 @@ serve(async (req) => {
     
     const venueMapFiles = new Map<string, { svg: string; venueName: string | null }>();
     
+    // Helper function to extract clean SVG from content with metadata
+    function extractCleanSvg(content: string): { svg: string | null; venueName: string | null } {
+      // Extract venue name from header metadata
+      let venueName: string | null = null;
+      const venueMatch = content.match(/Venue:\s*(.+?)(?:\n|$)/i);
+      if (venueMatch) {
+        venueName = venueMatch[1].trim();
+      }
+      
+      // Also try "Title:" pattern
+      if (!venueName) {
+        const titleMatch = content.match(/Title:\s*(.+?)(?:\s*-\s*|\n|$)/i);
+        if (titleMatch) {
+          venueName = titleMatch[1].trim();
+        }
+      }
+      
+      // Find the actual <svg> opening tag
+      const svgOpenMatch = content.match(/<svg[^>]*>/i);
+      if (!svgOpenMatch) {
+        return { svg: null, venueName };
+      }
+      
+      const svgStartIndex = content.indexOf(svgOpenMatch[0]);
+      
+      // Find the closing </svg> tag
+      const svgEndIndex = content.lastIndexOf('</svg>');
+      if (svgEndIndex === -1) {
+        return { svg: null, venueName };
+      }
+      
+      // Extract only the SVG portion (from <svg to </svg>)
+      const svgContent = content.substring(svgStartIndex, svgEndIndex + 6);
+      
+      // Validate it looks like proper SVG
+      if (!svgContent.includes('<svg') || !svgContent.includes('</svg>')) {
+        return { svg: null, venueName };
+      }
+      
+      console.log(`Extracted clean SVG: ${svgContent.length} chars (starts with: ${svgContent.substring(0, 80)}...)`);
+      return { svg: svgContent, venueName };
+    }
+    
     // Process files
     for (const fileName of allFileNames) {
       const file = filesMap[fileName];
@@ -120,33 +163,14 @@ serve(async (req) => {
       if (isTextFile) {
         try {
           const content = await file.async('string');
+          const { svg: svgContent, venueName: extractedVenueName } = extractCleanSvg(content);
           
-          // Find SVG content - it may have metadata header before it
-          const svgStartIndex = content.indexOf('<svg');
-          
-          if (svgStartIndex !== -1) {
-            // Extract the SVG portion
-            const svgContent = content.substring(svgStartIndex);
-            
-            // Extract venue name from metadata header (text before <svg)
-            const headerText = content.substring(0, svgStartIndex);
-            let extractedVenueName: string | null = null;
-            
-            // Look for "Venue:" line in header
-            const venueMatch = headerText.match(/Venue:\s*(.+?)(?:\n|$)/i);
-            if (venueMatch) {
-              extractedVenueName = venueMatch[1].trim();
-              console.log(`Extracted venue name from header: "${extractedVenueName}"`);
-            }
-            
+          if (svgContent) {
             const baseName = fileName.split('/').pop() || fileName;
             venueMapFiles.set(baseName, { svg: svgContent, venueName: extractedVenueName });
             console.log(`Found SVG map: ${baseName} (${svgContent.length} chars, venue: ${extractedVenueName || 'from filename'})`);
-          } else if (content.includes('<path') || content.includes('<g ') || content.includes('viewBox')) {
-            // Partial SVG without opening tag - skip
-            console.log(`File ${fileName} has SVG elements but no <svg> tag`);
           } else {
-            console.log(`File ${fileName} no SVG (first 100 chars: ${content.substring(0, 100).replace(/\n/g, ' ')})`);
+            console.log(`File ${fileName} - no valid SVG found (first 150 chars: ${content.substring(0, 150).replace(/\n/g, ' ')})`);
           }
         } catch (e) {
           console.error(`Error reading ${fileName}: ${e}`);
