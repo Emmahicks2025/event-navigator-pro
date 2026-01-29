@@ -122,7 +122,11 @@ const EventDetail = () => {
   };
 
   const handleSectionClick = (sectionId: string) => {
-    setSelectedSectionId(sectionId === selectedSectionId ? null : sectionId);
+    setSelectedSectionId((prev) => {
+      const next = sectionId === prev ? null : sectionId;
+      console.log('[EventDetail] handleSectionClick', { sectionId, prev, next });
+      return next;
+    });
   };
 
   const handleSectionHover = (section: any, eventSection?: any) => {
