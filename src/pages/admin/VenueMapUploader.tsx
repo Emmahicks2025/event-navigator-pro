@@ -3,10 +3,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
-import { Upload, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+import { Upload, CheckCircle, XCircle, Loader2, FileText } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import JSZip from 'jszip';
 
 interface ProcessResult {
   fileName: string;
@@ -28,12 +27,12 @@ function normalizeVenueName(name: string): string {
 }
 
 // Find matching venue from database
-function findBestMatch(fileName: string, venues: { id: string; name: string }[]): { id: string; name: string } | null {
-  const normalizedFileName = normalizeVenueName(fileName);
+function findBestMatch(searchName: string, venues: { id: string; name: string }[]): { id: string; name: string } | null {
+  const normalizedSearch = normalizeVenueName(searchName);
   
   // Exact match
   for (const venue of venues) {
-    if (normalizeVenueName(venue.name) === normalizedFileName) {
+    if (normalizeVenueName(venue.name) === normalizedSearch) {
       return venue;
     }
   }
@@ -41,17 +40,17 @@ function findBestMatch(fileName: string, venues: { id: string; name: string }[])
   // Contains match
   for (const venue of venues) {
     const normalizedVenueName = normalizeVenueName(venue.name);
-    if (normalizedVenueName.includes(normalizedFileName) || normalizedFileName.includes(normalizedVenueName)) {
+    if (normalizedVenueName.includes(normalizedSearch) || normalizedSearch.includes(normalizedVenueName)) {
       return venue;
     }
   }
   
   // Fuzzy match with key words
-  const fileWords = normalizedFileName.split(' ').filter(w => w.length > 2);
+  const searchWords = normalizedSearch.split(' ').filter(w => w.length > 2);
   for (const venue of venues) {
     const normalizedVenueName = normalizeVenueName(venue.name);
-    const matchCount = fileWords.filter(word => normalizedVenueName.includes(word)).length;
-    if (matchCount >= 2 || (matchCount >= 1 && fileWords.length <= 2)) {
+    const matchCount = searchWords.filter(word => normalizedVenueName.includes(word)).length;
+    if (matchCount >= 2 || (matchCount >= 1 && searchWords.length <= 2)) {
       return venue;
     }
   }
@@ -109,39 +108,14 @@ export default function VenueMapUploader() {
   const [summary, setSummary] = useState<{ matched: number; updated: number; skipped: number; unmatched: number; errors: number } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const processZipFile = async (file: File) => {
+  const processTextFiles = async (files: FileList) => {
     setIsProcessing(true);
     setProgress(0);
     setResults([]);
     setSummary(null);
 
     try {
-      console.log('Starting ZIP processing...', file.name, file.size);
-      
-      // Load the zip file
-      const zip = new JSZip();
-      const arrayBuffer = await file.arrayBuffer();
-      console.log('File loaded as ArrayBuffer:', arrayBuffer.byteLength);
-      
-      const zipContent = await zip.loadAsync(arrayBuffer);
-      console.log('ZIP loaded successfully');
-      
-      // Get all files - use Object.keys to iterate
-      const allFiles = Object.keys(zipContent.files);
-      console.log('All file names in ZIP:', allFiles);
-      
-      // Look for README/documentation files and log their content
-      for (const fileName of allFiles) {
-        if (fileName.toLowerCase().includes('readme') || fileName.toLowerCase().endsWith('.md')) {
-          const content = await zipContent.files[fileName].async('string');
-          console.log(`\n========== ${fileName} ==========\n${content}\n=================================\n`);
-        }
-      }
-      
-      const files = allFiles
-        .filter(name => !zipContent.files[name].dir)
-        .map(name => [name, zipContent.files[name]] as [string, JSZip.JSZipObject]);
-      console.log(`Found ${files.length} non-directory files in zip`);
+      console.log(`Processing ${files.length} text file(s)...`);
 
       // Fetch all venues from database
       const { data: venues, error: venuesError } = await supabase
@@ -158,30 +132,35 @@ export default function VenueMapUploader() {
       const stats = { matched: 0, updated: 0, skipped: 0, unmatched: 0, errors: 0 };
 
       for (let i = 0; i < files.length; i++) {
-        const [fileName, fileObj] = files[i];
-        console.log(`Processing file ${i + 1}/${files.length}: ${fileName}`);
-        setProgress(Math.round((i / files.length) * 100));
+        const file = files[i];
+        console.log(`Processing file ${i + 1}/${files.length}: ${file.name}`);
+        setProgress(Math.round(((i + 1) / files.length) * 100));
 
         try {
           // Read file content
-          const content = await fileObj.async('string');
+          const content = await file.text();
           
-          // Check if it contains SVG content
+          // Extract SVG content and venue name from metadata
           const { svg: svgContent, venueName: extractedVenueName } = extractSvgContent(content);
+          
           if (!svgContent) {
-            console.log(`Skipping ${fileName} - no SVG content found`);
+            console.log(`Skipping ${file.name} - no SVG content found`);
+            processResults.push({
+              fileName: file.name,
+              status: 'error',
+              message: 'No valid SVG content found in file'
+            });
+            stats.errors++;
             continue;
           }
 
-          const baseName = fileName.split('/').pop() || fileName;
-          
           // Find matching venue - try extracted name first, then filename
           let matchedVenue = extractedVenueName 
             ? findBestMatch(extractedVenueName, venues || [])
             : null;
           
           if (!matchedVenue) {
-            matchedVenue = findBestMatch(baseName, venues || []);
+            matchedVenue = findBestMatch(file.name, venues || []);
           }
           
           if (matchedVenue) {
@@ -197,11 +176,10 @@ export default function VenueMapUploader() {
                 upsert: true
               });
 
-
             if (uploadError) {
               stats.errors++;
               processResults.push({
-                fileName: baseName,
+                fileName: file.name,
                 venueName: matchedVenue.name,
                 status: 'error',
                 message: `Upload failed: ${uploadError.message}`
@@ -221,7 +199,7 @@ export default function VenueMapUploader() {
             if (updateError) {
               stats.errors++;
               processResults.push({
-                fileName: baseName,
+                fileName: file.name,
                 venueName: matchedVenue.name,
                 status: 'error',
                 message: `Database update failed: ${updateError.message}`
@@ -229,24 +207,25 @@ export default function VenueMapUploader() {
             } else {
               stats.updated++;
               processResults.push({
-                fileName: baseName,
+                fileName: file.name,
                 venueName: matchedVenue.name,
                 status: 'updated',
-                message: 'Successfully uploaded and linked'
+                message: `SVG uploaded (${Math.round(svgContent.length / 1024)}KB)`
               });
             }
           } else {
             stats.unmatched++;
             processResults.push({
-              fileName: baseName,
+              fileName: file.name,
+              venueName: extractedVenueName || undefined,
               status: 'unmatched',
-              message: 'No matching venue found in database'
+              message: `No matching venue found${extractedVenueName ? ` for "${extractedVenueName}"` : ''}`
             });
           }
         } catch (e) {
           stats.errors++;
           processResults.push({
-            fileName: fileName.split('/').pop() || fileName,
+            fileName: file.name,
             status: 'error',
             message: e instanceof Error ? e.message : 'Unknown error'
           });
@@ -259,41 +238,24 @@ export default function VenueMapUploader() {
       
       if (stats.updated > 0) {
         toast.success(`Successfully updated ${stats.updated} venue maps!`);
-      } else if (stats.skipped > 0) {
-        toast.info('All matching venues already have maps');
+      } else if (stats.errors > 0) {
+        toast.error(`Processing complete with ${stats.errors} errors`);
       } else {
         toast.warning('No venue maps were updated');
       }
 
     } catch (error) {
-      console.error('Error processing zip:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to process zip file');
+      console.error('Error processing files:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to process files');
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      processZipFile(file);
-    }
-  };
-
-  const loadExistingZip = async () => {
-    setIsProcessing(true);
-    try {
-      const response = await fetch('/temp/fixed_maps.zip');
-      if (!response.ok) {
-        throw new Error('Failed to load fixed_maps.zip from public folder');
-      }
-      const blob = await response.blob();
-      const file = new File([blob], 'fixed_maps.zip', { type: 'application/zip' });
-      await processZipFile(file);
-    } catch (error) {
-      console.error('Error loading existing zip:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to load zip file');
-      setIsProcessing(false);
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      processTextFiles(files);
     }
   };
 
@@ -302,55 +264,46 @@ export default function VenueMapUploader() {
       <div>
         <h1 className="text-2xl font-bold">Venue Map Uploader</h1>
         <p className="text-muted-foreground">
-          Upload a ZIP file containing SVG venue maps. They will be automatically matched to venues in the database.
+          Upload text files containing SVG venue maps. They will be automatically matched to venues in the database.
         </p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
-            Upload ZIP File
+            <FileText className="h-5 w-5" />
+            Upload SVG Text Files
           </CardTitle>
           <CardDescription>
-            Select a ZIP file containing SVG or TXT files with SVG content. File names should match venue names.
+            Select one or more .txt files containing SVG code. Files can include metadata headers (Venue:, Title:, URL:) - only the SVG code will be extracted.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".zip"
+            accept=".txt,.svg"
+            multiple
             onChange={handleFileChange}
             className="hidden"
           />
-          <div className="flex flex-wrap gap-3">
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isProcessing}
-              size="lg"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <Upload className="mr-2 h-4 w-4" />
-                  Select ZIP File
-                </>
-              )}
-            </Button>
-            <Button
-              onClick={loadExistingZip}
-              disabled={isProcessing}
-              size="lg"
-              variant="secondary"
-            >
-              Process fixed_maps.zip
-            </Button>
-          </div>
+          <Button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isProcessing}
+            size="lg"
+          >
+            {isProcessing ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                <Upload className="mr-2 h-4 w-4" />
+                Select Text Files
+              </>
+            )}
+          </Button>
 
           {isProcessing && (
             <div className="mt-4">
