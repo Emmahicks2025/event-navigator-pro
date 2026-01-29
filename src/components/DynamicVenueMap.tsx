@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { ZoomIn, ZoomOut, RotateCcw, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -27,13 +27,48 @@ interface DynamicVenueMapProps {
   selectedSectionId: string | null;
   onSectionClick: (sectionId: string, section: Section, eventSection?: EventSection) => void;
   onSectionHover: (section: Section | null, eventSection?: EventSection) => void;
+  ticketInventory?: Map<string, number>; // section_id -> ticket count (inventory-driven availability)
 }
 
-// Extract clean SVG from potentially messy data
-const extractSvgContent = (rawSvg: string): string => {
+// Sanitize SVG: strip external links, scripts, metadata, event handlers
+const sanitizeSvg = (rawSvg: string): string => {
   if (!rawSvg) return '';
-  const svgStartMatch = rawSvg.match(/<svg[\s\S]*<\/svg>/i);
-  return svgStartMatch ? svgStartMatch[0] : rawSvg;
+  
+  // Extract just the <svg>...</svg> content
+  const svgMatch = rawSvg.match(/<svg[\s\S]*<\/svg>/i);
+  if (!svgMatch) return rawSvg;
+  
+  let svg = svgMatch[0];
+  
+  // Remove script tags and their content
+  svg = svg.replace(/<script[\s\S]*?<\/script>/gi, '');
+  
+  // Remove event handlers (onclick, onmouseover, etc.)
+  svg = svg.replace(/\s+on\w+\s*=\s*["'][^"']*["']/gi, '');
+  
+  // Remove external links (xlink:href to external URLs, href to external URLs)
+  svg = svg.replace(/xlink:href\s*=\s*["']https?:\/\/[^"']*["']/gi, 'xlink:href=""');
+  svg = svg.replace(/href\s*=\s*["']https?:\/\/[^"']*["']/gi, 'href=""');
+  
+  // Remove metadata, sodipodi, inkscape elements
+  svg = svg.replace(/<metadata[\s\S]*?<\/metadata>/gi, '');
+  svg = svg.replace(/<sodipodi:[^>]*\/>/gi, '');
+  svg = svg.replace(/<sodipodi:[^>]*>[\s\S]*?<\/sodipodi:[^>]*>/gi, '');
+  svg = svg.replace(/<inkscape:[^>]*\/>/gi, '');
+  svg = svg.replace(/<inkscape:[^>]*>[\s\S]*?<\/inkscape:[^>]*>/gi, '');
+  
+  // Remove RDF and DC namespaced elements
+  svg = svg.replace(/<rdf:[^>]*>[\s\S]*?<\/rdf:[^>]*>/gi, '');
+  svg = svg.replace(/<dc:[^>]*>[\s\S]*?<\/dc:[^>]*>/gi, '');
+  svg = svg.replace(/<cc:[^>]*>[\s\S]*?<\/cc:[^>]*>/gi, '');
+  
+  // Remove style tags with @import or external references
+  svg = svg.replace(/<style[^>]*>[\s\S]*?@import[\s\S]*?<\/style>/gi, '');
+  
+  // Clean up empty attributes and excessive whitespace
+  svg = svg.replace(/\s{2,}/g, ' ');
+  
+  return svg;
 };
 
 // Parse viewBox from SVG if not provided
@@ -65,16 +100,13 @@ const extractIdentifiers = (elementId: string): string[] => {
   const identifiers: string[] = [];
   const lowerElementId = elementId.toLowerCase();
   
-  // Original ID
   identifiers.push(lowerElementId);
   
-  // Without -group or -section suffix
-  const withoutSuffix = lowerElementId.replace(/[-_](group|section|path)$/i, '');
+  const withoutSuffix = lowerElementId.replace(/[-_](group|section|path|area|zone)$/i, '');
   if (withoutSuffix !== lowerElementId) {
     identifiers.push(withoutSuffix);
   }
   
-  // Normalized version
   identifiers.push(normalizeName(elementId));
   
   // Extract numeric part if present (e.g., "101" from "section-101-group")
@@ -86,6 +118,47 @@ const extractIdentifiers = (elementId: string): string[] => {
   return [...new Set(identifiers)];
 };
 
+// Inject global styles once
+const STYLE_ID = 'dynamic-venue-map-styles';
+const ensureStyles = () => {
+  if (document.getElementById(STYLE_ID)) return;
+  
+  const styleEl = document.createElement('style');
+  styleEl.id = STYLE_ID;
+  styleEl.textContent = `
+    .venue-section-available {
+      fill: #3b82f6 !important;
+      fill-opacity: 0.65 !important;
+      stroke: #1d4ed8 !important;
+      stroke-width: 1.5px !important;
+      transition: fill 0.1s ease, fill-opacity 0.1s ease, stroke-width 0.1s ease;
+      cursor: pointer;
+    }
+    .venue-section-unavailable {
+      fill: #6b7280 !important;
+      fill-opacity: 0.3 !important;
+      stroke: #4b5563 !important;
+      stroke-width: 0.5px !important;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+    .venue-section-selected {
+      fill: #1d4ed8 !important;
+      fill-opacity: 0.9 !important;
+      stroke: #1e40af !important;
+      stroke-width: 3px !important;
+      cursor: pointer;
+    }
+    .venue-section-available:hover,
+    .venue-section-selected:hover {
+      fill: #2563eb !important;
+      fill-opacity: 0.85 !important;
+      stroke-width: 2.5px !important;
+    }
+  `;
+  document.head.appendChild(styleEl);
+};
+
 export const DynamicVenueMap = ({
   svgMap,
   viewBox,
@@ -94,13 +167,17 @@ export const DynamicVenueMap = ({
   selectedSectionId,
   onSectionClick,
   onSectionHover,
+  ticketInventory,
 }: DynamicVenueMapProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const cleanupRef = useRef<(() => void)[]>([]);
+  const processedRef = useRef<string>('');
+  
   const [zoom, setZoom] = useState(1);
   const [svgContent, setSvgContent] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
-  // Fetch SVG content if it's a URL
+  // Fetch and sanitize SVG content
   useEffect(() => {
     if (!svgMap) {
       setSvgContent('');
@@ -112,7 +189,7 @@ export const DynamicVenueMap = ({
       fetch(svgMap)
         .then(res => res.text())
         .then(text => {
-          setSvgContent(extractSvgContent(text));
+          setSvgContent(sanitizeSvg(text));
           setLoading(false);
         })
         .catch(err => {
@@ -121,19 +198,27 @@ export const DynamicVenueMap = ({
           setLoading(false);
         });
     } else {
-      setSvgContent(extractSvgContent(svgMap));
+      setSvgContent(sanitizeSvg(svgMap));
     }
   }, [svgMap]);
 
   const effectiveViewBox = viewBox || extractViewBox(svgContent);
-
-  // Build comprehensive mapping for section matching
+  
+  // Build comprehensive section mapping (inventory-driven availability)
   const sectionMapping = useMemo(() => {
     const mapping = new Map<string, { section: Section; eventSection?: EventSection; hasTickets: boolean }>();
     
     sections.forEach(section => {
       const eventSection = eventSections.find(es => es.section_id === section.id);
-      const hasTickets = eventSection ? eventSection.available_count > 0 : false;
+      
+      // Inventory-driven: check actual ticket_inventory count if provided, else fall back to eventSection.available_count
+      let hasTickets = false;
+      if (ticketInventory) {
+        hasTickets = (ticketInventory.get(section.id) || 0) > 0;
+      } else if (eventSection) {
+        hasTickets = eventSection.available_count > 0;
+      }
+      
       const data = { section, eventSection, hasTickets };
       
       // Map by svg_path if present
@@ -142,8 +227,6 @@ export const DynamicVenueMap = ({
         mapping.set(svgPathLower, data);
         mapping.set(`${svgPathLower}-group`, data);
         mapping.set(`${svgPathLower}-section`, data);
-        
-        // Also add normalized version
         mapping.set(normalizeName(section.svg_path), data);
       }
       
@@ -153,24 +236,43 @@ export const DynamicVenueMap = ({
         mapping.set(normalizedName, data);
       }
       
-      // Also map common variations of the section name
       const nameLower = section.name.toLowerCase();
-      mapping.set(nameLower, data);
-      mapping.set(nameLower.replace(/\s+/g, '-'), data);
-      mapping.set(nameLower.replace(/\s+/g, '_'), data);
-      mapping.set(nameLower.replace(/\s+/g, ''), data);
+      if (!mapping.has(nameLower)) mapping.set(nameLower, data);
+      if (!mapping.has(nameLower.replace(/\s+/g, '-'))) mapping.set(nameLower.replace(/\s+/g, '-'), data);
+      if (!mapping.has(nameLower.replace(/\s+/g, ''))) mapping.set(nameLower.replace(/\s+/g, ''), data);
     });
     
     return mapping;
-  }, [sections, eventSections]);
+  }, [sections, eventSections, ticketInventory]);
 
-  // Setup SVG interactivity
+  // Memoized click handler to prevent re-binding
+  const handleSectionClick = useCallback((sectionId: string, section: Section, eventSection?: EventSection) => {
+    onSectionClick(sectionId, section, eventSection);
+  }, [onSectionClick]);
+
+  // Memoized hover handler
+  const handleSectionHover = useCallback((section: Section | null, eventSection?: EventSection) => {
+    onSectionHover(section, eventSection);
+  }, [onSectionHover]);
+
+  // Setup SVG interactivity - only when svgContent changes or selectedSectionId changes
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !svgContent) return;
 
+    ensureStyles();
+
     const svgElement = container.querySelector('svg');
     if (!svgElement) return;
+
+    // Create a signature for this processing to prevent duplicate work
+    const processingSignature = `${svgContent.slice(0, 100)}-${selectedSectionId}-${sections.length}`;
+    if (processedRef.current === processingSignature) return;
+    processedRef.current = processingSignature;
+
+    // Cleanup previous listeners
+    cleanupRef.current.forEach(fn => fn());
+    cleanupRef.current = [];
 
     // Make SVG responsive
     if (effectiveViewBox) {
@@ -184,33 +286,25 @@ export const DynamicVenueMap = ({
     svgElement.style.maxHeight = '100%';
     svgElement.style.display = 'block';
 
-    // Find all elements with IDs
     const allElements = svgElement.querySelectorAll('[id]');
-    const cleanupFunctions: (() => void)[] = [];
     const processedElements = new Set<string>();
-    
-    // Track which sections we've matched to avoid duplicates
     const matchedSectionIds = new Set<string>();
+
+    const skipPatterns = [
+      /^svg$/i, /^defs$/i, /^clip/i, /^mask/i, /^gradient/i, /^pattern/i,
+      /^filter/i, /^g\d*$/i, /^layer/i, /^path\d*$/i, /^rect\d*$/i,
+      /^text\d*$/i, /^tspan/i, /^use\d*$/i, /^symbol/i, /^image/i,
+      /^style/i, /^metadata/i, /^namedview/i, /^sodipodi/i, /^stage/i,
+      /^background$/i, /^border$/i, /^outline$/i, /^floor$/i,
+    ];
 
     allElements.forEach((element) => {
       const elementId = element.getAttribute('id') || '';
       const lowerElementId = elementId.toLowerCase();
       
-      // Skip if already processed
       if (processedElements.has(lowerElementId)) return;
-      
-      // Skip common non-section elements
-      const skipPatterns = [
-        /^svg$/i, /^defs$/i, /^clip/i, /^mask/i, /^gradient/i, /^pattern/i,
-        /^filter/i, /^g\d*$/i, /^layer/i, /^path\d*$/i, /^rect\d*$/i,
-        /^text\d*$/i, /^tspan/i, /^use\d*$/i, /^symbol/i, /^image/i,
-        /^style/i, /^metadata/i, /^namedview/i, /^sodipodi/i, /^stage/i,
-        /^background/i, /^border/i, /^outline/i,
-      ];
-      
       if (skipPatterns.some(pattern => pattern.test(elementId))) return;
       
-      // Try to find matching section data using multiple strategies
       let matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean } | undefined;
       
       const identifiers = extractIdentifiers(elementId);
@@ -219,19 +313,16 @@ export const DynamicVenueMap = ({
         if (matchData) break;
       }
       
-      // If no match found, skip this element
       if (!matchData) return;
-      
-      // Avoid duplicate processing of the same section
       if (matchedSectionIds.has(matchData.section.id)) return;
-      matchedSectionIds.add(matchData.section.id);
       
+      matchedSectionIds.add(matchData.section.id);
       processedElements.add(lowerElementId);
 
       const { section, eventSection, hasTickets } = matchData;
       const isSelected = selectedSectionId === section.id;
 
-      // Find the target element to style (might be inside a group)
+      // Find target element to style
       let targetElement = element;
       const innerPath = element.querySelector('path, polygon, rect, circle, ellipse');
       if (innerPath && element.tagName.toLowerCase() === 'g') {
@@ -242,11 +333,10 @@ export const DynamicVenueMap = ({
       targetElement.classList.remove(
         'venue-section-available',
         'venue-section-unavailable',
-        'venue-section-selected',
-        'venue-section-hovered'
+        'venue-section-selected'
       );
 
-      // Apply styling based on availability
+      // Apply styling based on state
       if (isSelected) {
         targetElement.classList.add('venue-section-selected');
       } else if (hasTickets) {
@@ -255,85 +345,44 @@ export const DynamicVenueMap = ({
         targetElement.classList.add('venue-section-unavailable');
       }
 
-      // Set cursor and interactivity
-      if (hasTickets) {
-        (element as HTMLElement).style.cursor = 'pointer';
-
-        const handleMouseEnter = () => {
-          targetElement.classList.add('venue-section-hovered');
-          onSectionHover(section, eventSection);
-        };
-
-        const handleMouseLeave = () => {
-          targetElement.classList.remove('venue-section-hovered');
-          onSectionHover(null);
-        };
-
-        const handleClick = (e: Event) => {
+      // Add interactivity only for available sections
+      if (hasTickets || isSelected) {
+        const onEnter = () => handleSectionHover(section, eventSection);
+        const onLeave = () => handleSectionHover(null);
+        const onClick = (e: Event) => {
           e.stopPropagation();
-          onSectionClick(section.id, section, eventSection);
+          handleSectionClick(section.id, section, eventSection);
         };
 
-        element.addEventListener('mouseenter', handleMouseEnter);
-        element.addEventListener('mouseleave', handleMouseLeave);
-        element.addEventListener('click', handleClick);
+        element.addEventListener('mouseenter', onEnter);
+        element.addEventListener('mouseleave', onLeave);
+        element.addEventListener('click', onClick);
 
-        cleanupFunctions.push(() => {
-          element.removeEventListener('mouseenter', handleMouseEnter);
-          element.removeEventListener('mouseleave', handleMouseLeave);
-          element.removeEventListener('click', handleClick);
+        cleanupRef.current.push(() => {
+          element.removeEventListener('mouseenter', onEnter);
+          element.removeEventListener('mouseleave', onLeave);
+          element.removeEventListener('click', onClick);
         });
-      } else {
-        // Non-interactive for unavailable sections
-        (element as HTMLElement).style.cursor = 'not-allowed';
-        (element as HTMLElement).style.pointerEvents = 'none';
       }
     });
 
-    // Inject styles
-    const styleId = 'dynamic-venue-map-styles';
-    let styleEl = document.getElementById(styleId);
-    if (!styleEl) {
-      styleEl = document.createElement('style');
-      styleEl.id = styleId;
-      document.head.appendChild(styleEl);
-    }
-    styleEl.textContent = `
-      .venue-section-available {
-        fill: #3b82f6 !important;
-        fill-opacity: 0.65 !important;
-        stroke: #1d4ed8 !important;
-        stroke-width: 1.5px !important;
-        transition: all 0.15s ease;
-      }
-      .venue-section-unavailable {
-        fill: #6b7280 !important;
-        fill-opacity: 0.3 !important;
-        stroke: #4b5563 !important;
-        stroke-width: 0.5px !important;
-      }
-      .venue-section-selected {
-        fill: #1d4ed8 !important;
-        fill-opacity: 0.9 !important;
-        stroke: #1e40af !important;
-        stroke-width: 3px !important;
-      }
-      .venue-section-hovered {
-        fill: #2563eb !important;
-        fill-opacity: 0.85 !important;
-        stroke-width: 2.5px !important;
-        filter: brightness(1.15);
-      }
-    `;
-
     return () => {
-      cleanupFunctions.forEach(fn => fn());
+      cleanupRef.current.forEach(fn => fn());
+      cleanupRef.current = [];
     };
-  }, [svgContent, sectionMapping, selectedSectionId, onSectionClick, onSectionHover, effectiveViewBox]);
+  }, [svgContent, sectionMapping, selectedSectionId, handleSectionClick, handleSectionHover, effectiveViewBox, sections.length]);
 
-  const handleZoomIn = () => setZoom(z => Math.min(3, z + 0.25));
-  const handleZoomOut = () => setZoom(z => Math.max(0.5, z - 0.25));
-  const handleReset = () => setZoom(1);
+  const handleZoomIn = useCallback(() => setZoom(z => Math.min(3, z + 0.25)), []);
+  const handleZoomOut = useCallback(() => setZoom(z => Math.max(0.5, z - 0.25)), []);
+  const handleReset = useCallback(() => setZoom(1), []);
+
+  // Count available sections from inventory
+  const availableCount = useMemo(() => {
+    if (ticketInventory) {
+      return Array.from(ticketInventory.values()).filter(count => count > 0).length;
+    }
+    return eventSections.filter(es => es.available_count > 0).length;
+  }, [eventSections, ticketInventory]);
 
   if (loading) {
     return (
@@ -357,7 +406,7 @@ export const DynamicVenueMap = ({
       <div className="absolute top-2 left-2 z-10 flex gap-3 bg-card/90 backdrop-blur rounded-lg px-3 py-2 border border-border text-xs">
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-sm bg-blue-500" />
-          <span className="text-muted-foreground">Available ({eventSections.filter(es => es.available_count > 0).length})</span>
+          <span className="text-muted-foreground">Available ({availableCount})</span>
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-3 h-3 rounded-sm bg-gray-500 opacity-40" />
@@ -388,7 +437,7 @@ export const DynamicVenueMap = ({
       >
         <div
           ref={containerRef}
-          className="w-full h-full flex items-center justify-center p-2"
+          className="w-full h-full flex items-center justify-center p-2 will-change-transform"
           style={{ 
             transform: `scale(${zoom})`,
             transformOrigin: 'center center',

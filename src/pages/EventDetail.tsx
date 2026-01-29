@@ -49,20 +49,24 @@ const EventDetail = () => {
     }));
   }, [tickets]);
 
-  // Calculate actual inventory count per section from tickets
-  const sectionInventoryMap = useMemo(() => {
-    const map = new Map<string, { count: number; minPrice: number }>();
+  // Calculate actual inventory count per section from tickets (inventory-driven availability)
+  const { sectionInventoryMap, ticketInventoryMap } = useMemo(() => {
+    const sectionMap = new Map<string, { count: number; minPrice: number }>();
+    const inventoryMap = new Map<string, number>(); // section_id -> count for map component
+    
     tickets.forEach((ticket: any) => {
       const sectionId = ticket.event_section?.section_id;
       if (sectionId) {
-        const existing = map.get(sectionId) || { count: 0, minPrice: Infinity };
-        map.set(sectionId, {
-          count: existing.count + (ticket.quantity || 1),
+        const existing = sectionMap.get(sectionId) || { count: 0, minPrice: Infinity };
+        const newCount = existing.count + (ticket.quantity || 1);
+        sectionMap.set(sectionId, {
+          count: newCount,
           minPrice: Math.min(existing.minPrice, Number(ticket.price) || Infinity),
         });
+        inventoryMap.set(sectionId, newCount);
       }
     });
-    return map;
+    return { sectionInventoryMap: sectionMap, ticketInventoryMap: inventoryMap };
   }, [tickets]);
 
   // Get sections from event sections with real inventory counts
@@ -312,6 +316,7 @@ const EventDetail = () => {
                   selectedSectionId={selectedSectionId}
                   onSectionClick={handleSectionClick}
                   onSectionHover={handleSectionHover}
+                  ticketInventory={ticketInventoryMap}
                 />
               )}
             </div>
