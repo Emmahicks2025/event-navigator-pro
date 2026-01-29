@@ -50,6 +50,7 @@ import InventoryForm from "./pages/admin/InventoryForm";
 import SellRequestsList from "./pages/admin/SellRequestsList";
 import BulkUpload from "./pages/admin/BulkUpload";
 import EventsImport from "./pages/admin/EventsImport";
+import VenueMapUploader from "./pages/admin/VenueMapUploader";
 
 const queryClient = new QueryClient();
 
@@ -84,6 +85,7 @@ const App = () => (
                 <Route path="sell-requests" element={<SellRequestsList />} />
                 <Route path="bulk-upload" element={<BulkUpload />} />
                 <Route path="import-events" element={<EventsImport />} />
+                <Route path="venue-maps" element={<VenueMapUploader />} />
               </Route>
 
               {/* Auth */}
