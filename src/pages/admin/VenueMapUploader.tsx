@@ -94,13 +94,24 @@ export default function VenueMapUploader() {
     setSummary(null);
 
     try {
+      console.log('Starting ZIP processing...', file.name, file.size);
+      
       // Load the zip file
       const zip = new JSZip();
-      const zipContent = await zip.loadAsync(file);
+      const arrayBuffer = await file.arrayBuffer();
+      console.log('File loaded as ArrayBuffer:', arrayBuffer.byteLength);
       
-      // Get all files
-      const files = Object.entries(zipContent.files).filter(([_, file]) => !file.dir);
-      console.log(`Found ${files.length} files in zip`);
+      const zipContent = await zip.loadAsync(arrayBuffer);
+      console.log('ZIP loaded successfully');
+      
+      // Get all files - use Object.keys to iterate
+      const allFiles = Object.keys(zipContent.files);
+      console.log('All file names in ZIP:', allFiles.slice(0, 20));
+      
+      const files = allFiles
+        .filter(name => !zipContent.files[name].dir)
+        .map(name => [name, zipContent.files[name]] as [string, JSZip.JSZipObject]);
+      console.log(`Found ${files.length} non-directory files in zip`);
 
       // Fetch all venues from database
       const { data: venues, error: venuesError } = await supabase
@@ -111,11 +122,14 @@ export default function VenueMapUploader() {
         throw new Error(`Failed to fetch venues: ${venuesError.message}`);
       }
 
+      console.log(`Found ${venues?.length || 0} venues in database`);
+
       const processResults: ProcessResult[] = [];
       const stats = { matched: 0, updated: 0, skipped: 0, unmatched: 0, errors: 0 };
 
       for (let i = 0; i < files.length; i++) {
         const [fileName, fileObj] = files[i];
+        console.log(`Processing file ${i + 1}/${files.length}: ${fileName}`);
         setProgress(Math.round((i / files.length) * 100));
 
         try {
@@ -242,6 +256,29 @@ export default function VenueMapUploader() {
     }
   };
 
+  const loadFromPublicFile = async (fileName: string) => {
+    setIsProcessing(true);
+    setProgress(0);
+    setResults([]);
+    setSummary(null);
+    
+    try {
+      console.log(`Fetching ${fileName} from public folder...`);
+      const response = await fetch(`/temp/${fileName}`);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch file: ${response.statusText}`);
+      }
+      const blob = await response.blob();
+      console.log(`Fetched blob size: ${blob.size}`);
+      const file = new File([blob], fileName, { type: 'application/zip' });
+      await processZipFile(file);
+    } catch (error) {
+      console.error('Error loading public file:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to load file');
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -269,23 +306,44 @@ export default function VenueMapUploader() {
             onChange={handleFileChange}
             className="hidden"
           />
-          <Button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isProcessing}
-            size="lg"
-          >
-            {isProcessing ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Processing...
-              </>
-            ) : (
-              <>
-                <Upload className="mr-2 h-4 w-4" />
-                Select ZIP File
-              </>
-            )}
-          </Button>
+          <div className="flex flex-wrap gap-4">
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isProcessing}
+              size="lg"
+            >
+              {isProcessing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Upload className="mr-2 h-4 w-4" />
+                  Select ZIP File
+                </>
+              )}
+            </Button>
+            
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => loadFromPublicFile('scraped_maps.zip')}
+                disabled={isProcessing}
+              >
+                <FileArchive className="mr-2 h-4 w-4" />
+                Use scraped_maps.zip
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => loadFromPublicFile('scraped_maps-2.zip')}
+                disabled={isProcessing}
+              >
+                <FileArchive className="mr-2 h-4 w-4" />
+                Use scraped_maps-2.zip
+              </Button>
+            </div>
+          </div>
 
           {isProcessing && (
             <div className="mt-4">
