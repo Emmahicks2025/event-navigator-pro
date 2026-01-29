@@ -295,7 +295,20 @@ export const DynamicVenueMap = ({
     svgElement.style.maxHeight = '100%';
     svgElement.style.display = 'block';
 
-    const allElements = svgElement.querySelectorAll('[id]');
+    // Many venue maps have reliable IDs; some (like certain arena exports) have *no* ids.
+    // Support both strategies:
+    // 1) ID-based matching on elements with [id]
+    // 2) Text-label-based matching using <text> content (e.g. "LS53", "101", "PIT PASS")
+    const idElements = Array.from(svgElement.querySelectorAll('[id]'));
+    const textElements = Array.from(svgElement.querySelectorAll('text'))
+      .filter((el) => {
+        const txt = (el.textContent || '').trim();
+        if (!txt) return false;
+        // Avoid processing purely decorative labels
+        if (txt.length > 40) return false;
+        return true;
+      });
+
     const processedElements = new Set<string>();
     const matchedSectionIds = new Set<string>();
 
@@ -307,54 +320,29 @@ export const DynamicVenueMap = ({
       /^background$/i, /^border$/i, /^outline$/i, /^floor$/i,
     ];
 
-    allElements.forEach((element) => {
-      const elementId = element.getAttribute('id') || '';
-      const lowerElementId = elementId.toLowerCase();
-      
-      if (processedElements.has(lowerElementId)) return;
-      if (skipPatterns.some(pattern => pattern.test(elementId))) return;
-      
-      let matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean } | undefined;
-      
-      const identifiers = extractIdentifiers(elementId);
-      for (const id of identifiers) {
-        matchData = sectionMapping.get(id);
-        if (matchData) break;
-      }
-      
-      if (!matchData) return;
-      if (matchedSectionIds.has(matchData.section.id)) return;
-      
-      matchedSectionIds.add(matchData.section.id);
-      processedElements.add(lowerElementId);
-
+    const bindInteractivity = (sourceEl: Element, matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean }) => {
       const { section, eventSection, hasTickets } = matchData;
+      if (matchedSectionIds.has(section.id)) return;
+
+      matchedSectionIds.add(section.id);
+
+      // Prefer binding to a containing <g> (bigger hover target) but style the inner shape.
+      const groupEl = sourceEl.closest('g') || sourceEl;
+      const innerShape = groupEl.querySelector('path, polygon, rect, circle, ellipse');
+      const targetElement = innerShape || groupEl;
+
       const isSelected = selectedSectionId === section.id;
 
-      // Find target element to style
-      let targetElement = element;
-      const innerPath = element.querySelector('path, polygon, rect, circle, ellipse');
-      if (innerPath && element.tagName.toLowerCase() === 'g') {
-        targetElement = innerPath;
-      }
-
-      // Clear previous classes
       targetElement.classList.remove(
         'venue-section-available',
         'venue-section-unavailable',
         'venue-section-selected'
       );
 
-      // Apply styling based on state
-      if (isSelected) {
-        targetElement.classList.add('venue-section-selected');
-      } else if (hasTickets) {
-        targetElement.classList.add('venue-section-available');
-      } else {
-        targetElement.classList.add('venue-section-unavailable');
-      }
+      if (isSelected) targetElement.classList.add('venue-section-selected');
+      else if (hasTickets) targetElement.classList.add('venue-section-available');
+      else targetElement.classList.add('venue-section-unavailable');
 
-      // Add interactivity only for available sections
       if (hasTickets || isSelected) {
         const onEnter = () => handleSectionHover(section, eventSection);
         const onLeave = () => handleSectionHover(null);
@@ -363,16 +351,67 @@ export const DynamicVenueMap = ({
           handleSectionClick(section.id, section, eventSection);
         };
 
-        element.addEventListener('mouseenter', onEnter);
-        element.addEventListener('mouseleave', onLeave);
-        element.addEventListener('click', onClick);
+        groupEl.addEventListener('mouseenter', onEnter);
+        groupEl.addEventListener('mouseleave', onLeave);
+        groupEl.addEventListener('click', onClick);
 
         cleanupRef.current.push(() => {
-          element.removeEventListener('mouseenter', onEnter);
-          element.removeEventListener('mouseleave', onLeave);
-          element.removeEventListener('click', onClick);
+          groupEl.removeEventListener('mouseenter', onEnter);
+          groupEl.removeEventListener('mouseleave', onLeave);
+          groupEl.removeEventListener('click', onClick);
         });
       }
+    };
+
+    // Strategy 1: ID-based processing
+    idElements.forEach((element) => {
+      const elementId = element.getAttribute('id') || '';
+      const lowerElementId = elementId.toLowerCase();
+
+      if (!elementId) return;
+      if (processedElements.has(lowerElementId)) return;
+      if (skipPatterns.some((pattern) => pattern.test(elementId))) return;
+
+      let matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean } | undefined;
+      const identifiers = extractIdentifiers(elementId);
+      for (const id of identifiers) {
+        matchData = sectionMapping.get(id);
+        if (matchData) break;
+      }
+
+      if (!matchData) return;
+      processedElements.add(lowerElementId);
+      bindInteractivity(element, matchData);
+    });
+
+    // Strategy 2: text-label based processing (for SVGs without ids)
+    // Note: We only run this for labels that map to a section. This is inexpensive and avoids flicker.
+    textElements.forEach((textEl) => {
+      const label = (textEl.textContent || '').trim();
+      if (!label) return;
+
+      const key = `text:${normalizeName(label)}`;
+      if (processedElements.has(key)) return;
+      processedElements.add(key);
+
+      // Use normalized label as identifier; also try raw lower.
+      const candidates = [
+        normalizeName(label),
+        label.toLowerCase(),
+      ];
+
+      // If label contains digits, also try extracted numeric.
+      const numericMatch = label.match(/(\d{1,3})/);
+      if (numericMatch) candidates.push(numericMatch[1]);
+
+      let matchData: { section: Section; eventSection?: EventSection; hasTickets: boolean } | undefined;
+      for (const c of candidates) {
+        matchData = sectionMapping.get(c);
+        if (matchData) break;
+      }
+      if (!matchData) return;
+
+      bindInteractivity(textEl, matchData);
     });
 
     return () => {
