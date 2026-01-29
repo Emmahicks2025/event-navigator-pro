@@ -115,6 +115,18 @@ export function useEventTickets(eventId: string | undefined) {
     queryFn: async () => {
       if (!eventId) return [];
 
+      // First get event_section IDs for this event
+      const { data: eventSections, error: esError } = await supabase
+        .from('event_sections')
+        .select('id')
+        .eq('event_id', eventId);
+      
+      if (esError) throw esError;
+      if (!eventSections || eventSections.length === 0) return [];
+
+      const sectionIds = eventSections.map(es => es.id);
+
+      // Then get tickets for those sections
       const { data, error } = await supabase
         .from('ticket_inventory')
         .select(`
@@ -124,15 +136,12 @@ export function useEventTickets(eventId: string | undefined) {
             section:sections(*)
           )
         `)
+        .in('event_section_id', sectionIds)
         .eq('status', 'available')
         .order('price', { ascending: true });
 
       if (error) throw error;
-      
-      // Filter tickets for this event
-      return (data || []).filter(
-        (ticket: any) => ticket.event_section?.event_id === eventId
-      );
+      return data || [];
     },
     enabled: !!eventId,
   });
