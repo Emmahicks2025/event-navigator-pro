@@ -1,6 +1,7 @@
 -- =====================================================
 -- TICKET PLATFORM DATABASE SCHEMA
 -- Complete schema for self-hosted deployment
+-- Version: 2.0 (Updated January 2026)
 -- =====================================================
 
 -- Enable required extensions
@@ -86,6 +87,7 @@ CREATE TABLE public.events (
   is_featured BOOLEAN DEFAULT false,
   is_active BOOLEAN DEFAULT true,
   display_order INTEGER DEFAULT 0,
+  homepage_sections TEXT[] DEFAULT '{}',
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now()
 );
@@ -202,6 +204,28 @@ CREATE TABLE public.featured_config (
   config_value JSONB DEFAULT '{}',
   updated_by UUID,
   updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Sell Requests table (user ticket selling)
+CREATE TABLE public.sell_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID,
+  event_name TEXT NOT NULL,
+  event_date DATE NOT NULL,
+  venue_name TEXT NOT NULL,
+  city TEXT NOT NULL,
+  section TEXT NOT NULL,
+  row_name TEXT,
+  seat_numbers TEXT,
+  quantity INTEGER NOT NULL DEFAULT 1,
+  asking_price NUMERIC NOT NULL,
+  contact_name TEXT NOT NULL,
+  contact_email TEXT NOT NULL,
+  contact_phone TEXT,
+  notes TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- =====================================================
@@ -326,18 +350,16 @@ CREATE TRIGGER update_orders_updated_at
   BEFORE UPDATE ON public.orders
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
+CREATE TRIGGER update_sell_requests_updated_at
+  BEFORE UPDATE ON public.sell_requests
+  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+
 -- Order number generation trigger
 CREATE TRIGGER generate_order_number_trigger
   BEFORE INSERT ON public.orders
   FOR EACH ROW
   WHEN (NEW.order_number IS NULL OR NEW.order_number = '')
   EXECUTE FUNCTION public.generate_order_number();
-
--- New user trigger (attach to auth.users)
--- Note: Run this after setting up Supabase Auth
--- CREATE TRIGGER on_auth_user_created
---   AFTER INSERT ON auth.users
---   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- =====================================================
 -- ROW LEVEL SECURITY POLICIES
@@ -357,6 +379,7 @@ ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.featured_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sell_requests ENABLE ROW LEVEL SECURITY;
 
 -- Categories policies
 CREATE POLICY "Anyone can view categories" ON public.categories FOR SELECT USING (true);
@@ -417,3 +440,30 @@ CREATE POLICY "Users can create own order items" ON public.order_items FOR INSER
 -- Featured Config policies
 CREATE POLICY "Anyone can view featured config" ON public.featured_config FOR SELECT USING (true);
 CREATE POLICY "Admins can manage featured config" ON public.featured_config FOR ALL USING (is_admin()) WITH CHECK (is_admin());
+
+-- Sell Requests policies
+CREATE POLICY "Anyone can submit sell requests" ON public.sell_requests FOR INSERT WITH CHECK (true);
+CREATE POLICY "Users can view their own requests" ON public.sell_requests FOR SELECT USING (user_id = auth.uid() OR is_moderator_or_admin());
+CREATE POLICY "Admins can manage all requests" ON public.sell_requests FOR ALL USING (is_moderator_or_admin()) WITH CHECK (is_moderator_or_admin());
+
+-- =====================================================
+-- STORAGE BUCKETS (Run after schema setup)
+-- =====================================================
+-- INSERT INTO storage.buckets (id, name, public) VALUES ('venue-maps', 'venue-maps', true);
+-- INSERT INTO storage.buckets (id, name, public) VALUES ('performer-images', 'performer-images', true);
+-- INSERT INTO storage.buckets (id, name, public) VALUES ('temp-uploads', 'temp-uploads', true);
+
+-- Storage Policies
+-- CREATE POLICY "Public can view venue maps" ON storage.objects FOR SELECT USING (bucket_id = 'venue-maps');
+-- CREATE POLICY "Admins can upload venue maps" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'venue-maps' AND is_moderator_or_admin());
+-- CREATE POLICY "Admins can update venue maps" ON storage.objects FOR UPDATE USING (bucket_id = 'venue-maps' AND is_moderator_or_admin());
+-- CREATE POLICY "Public can view performer images" ON storage.objects FOR SELECT USING (bucket_id = 'performer-images');
+-- CREATE POLICY "Admins can upload performer images" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'performer-images' AND is_moderator_or_admin());
+-- CREATE POLICY "Admins can update performer images" ON storage.objects FOR UPDATE USING (bucket_id = 'performer-images' AND is_moderator_or_admin());
+
+-- =====================================================
+-- AUTH TRIGGER (Run after setting up Supabase Auth)
+-- =====================================================
+-- CREATE TRIGGER on_auth_user_created
+--   AFTER INSERT ON auth.users
+--   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
