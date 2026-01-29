@@ -29,3 +29,9 @@ verify_jwt = false
 
 [functions.fetch-venue-maps]
 verify_jwt = false
+
+[functions.sync-svg-sections]
+verify_jwt = false
+
+[functions.link-event-sections]
+verify_jwt = false
