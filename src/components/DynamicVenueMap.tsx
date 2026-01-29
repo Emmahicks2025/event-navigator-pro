@@ -38,6 +38,7 @@ interface DynamicVenueMapProps {
     resolutionPath?: 'mapping' | 'proximity' | 'none';
     candidateCount?: number;
   }) => void;
+  debugLog?: boolean;
 }
 
 // Sanitize SVG: strip external links, scripts, metadata, event handlers
@@ -180,6 +181,7 @@ export const DynamicVenueMap = ({
   onSectionHover,
   ticketInventory,
   onDebugEvent,
+  debugLog,
 }: DynamicVenueMapProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgHostRef = useRef<HTMLDivElement>(null);
@@ -616,6 +618,29 @@ export const DynamicVenueMap = ({
       }
 
       const uniq = Array.from(new Set(candidates)).filter(Boolean);
+
+      const shouldLog =
+        !!debugLog &&
+        typeof window !== 'undefined' &&
+        import.meta.env.DEV &&
+        window.sessionStorage?.getItem('tixorbit_map_debug') === '1';
+
+      if (shouldLog) {
+        // eslint-disable-next-line no-console
+        console.groupCollapsed('[MapDebug] click resolution');
+        // eslint-disable-next-line no-console
+        console.log('target', {
+          tag: (target as any)?.tagName,
+          id: target.getAttribute?.('id') ?? null,
+          closestId: (target.closest?.('[id]') as Element | null)?.getAttribute?.('id') ?? null,
+          labelText: labeled ?? null,
+        });
+        // eslint-disable-next-line no-console
+        console.log('candidates', uniq);
+        // eslint-disable-next-line no-console
+        console.groupEnd();
+      }
+
       for (const c of uniq) {
         const matchData = sectionMapping.get(c);
         if (matchData) {
@@ -628,6 +653,14 @@ export const DynamicVenueMap = ({
             resolutionPath: 'mapping',
             candidateCount: uniq.length,
           });
+          if (shouldLog) {
+            // eslint-disable-next-line no-console
+            console.info('[MapDebug] resolved via mapping', {
+              candidate: c,
+              resolvedSectionId: matchData.section.id,
+              resolvedSectionName: matchData.section.name,
+            });
+          }
           handleSectionClick(matchData.section.id, matchData.section, matchData.eventSection);
           return;
         }
@@ -648,6 +681,15 @@ export const DynamicVenueMap = ({
             resolutionPath: 'proximity',
             candidateCount: uniq.length,
           });
+          if (shouldLog) {
+            // eslint-disable-next-line no-console
+            console.info('[MapDebug] resolved via proximity', {
+              resolvedSectionId: mapped.section.id,
+              resolvedSectionName: mapped.section.name,
+              shapeClass: (shape as Element).getAttribute?.('class') ?? null,
+              shapeId: (shape as Element).getAttribute?.('id') ?? null,
+            });
+          }
           handleSectionClick(mapped.section.id, mapped.section, mapped.eventSection);
           return;
         }
@@ -661,6 +703,11 @@ export const DynamicVenueMap = ({
         resolutionPath: 'none',
         candidateCount: uniq.length,
       });
+
+      if (shouldLog) {
+        // eslint-disable-next-line no-console
+        console.warn('[MapDebug] no match found', { candidateCount: uniq.length });
+      }
     };
     svgElement.addEventListener('click', delegatedClick, true);
     cleanupRef.current.push(() => svgElement.removeEventListener('click', delegatedClick, true));
