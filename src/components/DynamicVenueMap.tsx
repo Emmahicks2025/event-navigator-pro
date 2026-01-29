@@ -490,8 +490,8 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
 
     // Heuristic resolver for venues whose SVG has granular labels (e.g. "LEFT ORCH")
     // but the DB only contains coarse sections (e.g. "Orchestra").
-    const resolveByLabelHeuristics = (rawLabel: string) => {
-      const labelNorm = normalizeName(rawLabel);
+    const resolveByHeuristics = (raw: string) => {
+      const labelNorm = normalizeName(raw);
       if (!labelNorm) return null;
 
       // Prefer by explicit keywords that usually map to section_type.
@@ -499,6 +499,52 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
       const wantsMezz = labelNorm.includes('mezz');
       const wantsBalc = labelNorm.includes('balc');
       const wantsBox = labelNorm.includes('box');
+
+      // Fast-path: if the SVG is coarse (e.g. "mezz-section") or uses generic MEZZ/ORCH labels,
+      // map directly to the coarse DB sections by section_type.
+      const pickByType = (type: string, preferNameIncludes?: string) => {
+        const candidates = sections.filter((s) => s.section_type === type);
+        if (candidates.length === 0) return null;
+        if (preferNameIncludes) {
+          const preferred = candidates.find((s) => normalizeName(s.name).includes(preferNameIncludes));
+          if (preferred) return preferred;
+        }
+        return candidates[0];
+      };
+
+      if (wantsOrch) {
+        const sec = pickByType('orchestra');
+        if (sec) {
+          const es = eventSections.find((e) => e.section_id === sec.id);
+          const hasTickets = ticketInventory ? (ticketInventory.get(sec.id) || 0) > 0 : (es?.available_count || 0) > 0;
+          return { section: sec, eventSection: es, hasTickets };
+        }
+      }
+      if (wantsMezz) {
+        // Default to Front Mezzanine if present
+        const sec = pickByType('mezzanine', 'frontmezz') || pickByType('mezzanine');
+        if (sec) {
+          const es = eventSections.find((e) => e.section_id === sec.id);
+          const hasTickets = ticketInventory ? (ticketInventory.get(sec.id) || 0) > 0 : (es?.available_count || 0) > 0;
+          return { section: sec, eventSection: es, hasTickets };
+        }
+      }
+      if (wantsBalc) {
+        const sec = pickByType('balcony');
+        if (sec) {
+          const es = eventSections.find((e) => e.section_id === sec.id);
+          const hasTickets = ticketInventory ? (ticketInventory.get(sec.id) || 0) > 0 : (es?.available_count || 0) > 0;
+          return { section: sec, eventSection: es, hasTickets };
+        }
+      }
+      if (wantsBox) {
+        const sec = pickByType('standard', 'box') || sections.find((s) => normalizeName(s.name).includes('box'));
+        if (sec) {
+          const es = eventSections.find((e) => e.section_id === sec.id);
+          const hasTickets = ticketInventory ? (ticketInventory.get(sec.id) || 0) > 0 : (es?.available_count || 0) > 0;
+          return { section: sec, eventSection: es, hasTickets };
+        }
+      }
 
       const scored = sections
         .map((section) => {
@@ -522,6 +568,9 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
             const wantsFront = labelNorm.includes('front');
             if (wantsRear && sectionNorm.includes('rearmezz')) score += 60;
             if (wantsFront && sectionNorm.includes('frontmezz')) score += 60;
+
+            // If the SVG is coarse (e.g. "mezz-section"), prefer Front Mezzanine by default.
+            if (!wantsRear && !wantsFront && sectionNorm.includes('frontmezz')) score += 20;
           }
 
           return { section, score };
@@ -840,9 +889,11 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
         }
       }
 
-      // Heuristic fallback for coarse DB sections vs granular SVG labels
-      if (labeled) {
-        const heuristic = resolveByLabelHeuristics(labeled);
+      // Heuristic fallback for coarse DB sections vs granular SVG IDs/labels.
+      // Works even when SVG provides ids like "mezz-section" and labelText is empty.
+      const heuristicSource = labeled || uniq.join(' ');
+      if (heuristicSource) {
+        const heuristic = resolveByHeuristics(heuristicSource);
         if (heuristic) {
           e.preventDefault();
           e.stopPropagation();
@@ -850,13 +901,13 @@ export const DynamicVenueMap = forwardRef<HTMLDivElement, DynamicVenueMapProps>(
             ...debugBase,
             labelText: labeled ?? null,
             resolvedSectionId: heuristic.section.id,
-            resolutionPath: 'proximity',
+            resolutionPath: 'mapping',
             candidateCount: uniq.length,
           });
           if (shouldLog) {
             // eslint-disable-next-line no-console
             console.info('[MapDebug] resolved via heuristics', {
-              label: labeled,
+              source: heuristicSource,
               resolvedSectionId: heuristic.section.id,
               resolvedSectionName: heuristic.section.name,
             });
